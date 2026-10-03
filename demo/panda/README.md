@@ -1,4 +1,4 @@
-# ghstats — panda
+# ghglance — panda
 
 [← back to index](../README.md)
 

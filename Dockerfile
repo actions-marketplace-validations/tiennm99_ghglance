@@ -3,11 +3,11 @@ WORKDIR /src
 COPY go.mod ./
 RUN go mod download || true
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ghstats .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ghglance .
 
 FROM alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
 RUN apk add --no-cache ca-certificates tzdata git
-COPY --from=build /out/ghstats /usr/local/bin/ghstats
+COPY --from=build /out/ghglance /usr/local/bin/ghglance
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]

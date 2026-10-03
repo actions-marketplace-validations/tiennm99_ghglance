@@ -1,4 +1,4 @@
-# ghstats — omni
+# ghglance — omni
 
 [← back to index](../README.md)
 

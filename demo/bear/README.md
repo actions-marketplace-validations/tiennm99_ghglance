@@ -1,4 +1,4 @@
-# ghstats — bear
+# ghglance — bear
 
 [← back to index](../README.md)
 

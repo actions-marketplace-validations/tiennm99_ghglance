@@ -1,4 +1,4 @@
-# ghstats — flag_india
+# ghglance — flag_india
 
 [← back to index](../README.md)
 

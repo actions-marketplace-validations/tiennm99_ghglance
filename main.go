@@ -1,4 +1,4 @@
-// ghstats generates SVG cards summarizing a GitHub user's profile.
+// ghglance generates SVG cards summarizing a GitHub user's profile.
 package main
 
 import (
@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tiennm99/ghstats/internal/card"
-	"github.com/tiennm99/ghstats/internal/github"
-	"github.com/tiennm99/ghstats/internal/theme"
+	"github.com/tiennm99/ghglance/internal/card"
+	"github.com/tiennm99/ghglance/internal/github"
+	"github.com/tiennm99/ghglance/internal/theme"
 )
 
 func main() {

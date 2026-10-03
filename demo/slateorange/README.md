@@ -1,4 +1,4 @@
-# ghstats — slateorange
+# ghglance — slateorange
 
 [← back to index](../README.md)
 

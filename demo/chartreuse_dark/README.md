@@ -1,4 +1,4 @@
-# ghstats — chartreuse_dark
+# ghglance — chartreuse_dark
 
 [← back to index](../README.md)
 

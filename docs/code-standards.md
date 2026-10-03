@@ -66,7 +66,7 @@ Never write comments that describe what well-named code does (`// increment coun
 ## Testing
 
 - Unit tests in the same package, no mocking of http.Client — we test rendering and pure helpers.
-- Network tests are omitted; integration verification is manual (`./ghstats -token ...`).
+- Network tests are omitted; integration verification is manual (`./ghglance -token ...`).
 - `go vet ./...` clean before every commit.
 
 ## Commit conventions

@@ -1,4 +1,4 @@
-# ghstats — apprentice
+# ghglance — apprentice
 
 [← back to index](../README.md)
 

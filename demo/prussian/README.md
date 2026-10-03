@@ -1,4 +1,4 @@
-# ghstats — prussian
+# ghglance — prussian
 
 [← back to index](../README.md)
 

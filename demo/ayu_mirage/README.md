@@ -1,4 +1,4 @@
-# ghstats — ayu_mirage
+# ghglance — ayu_mirage
 
 [← back to index](../README.md)
 

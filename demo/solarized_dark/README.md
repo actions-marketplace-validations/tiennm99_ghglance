@@ -1,4 +1,4 @@
-# ghstats — solarized_dark
+# ghglance — solarized_dark
 
 [← back to index](../README.md)
 

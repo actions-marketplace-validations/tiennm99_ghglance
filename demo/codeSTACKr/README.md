@@ -1,4 +1,4 @@
-# ghstats — codeSTACKr
+# ghglance — codeSTACKr
 
 [← back to index](../README.md)
 

@@ -6,10 +6,10 @@ Three consumption paths: **GitHub Action**, **prebuilt binaries**, **go install*
 
 ### Workflow template
 
-File: `.github/workflows/ghstats.yml` in your profile repo.
+File: `.github/workflows/ghglance.yml` in your profile repo.
 
 ```yaml
-name: ghstats
+name: ghglance
 
 on:
   schedule:
@@ -24,10 +24,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: tiennm99/ghstats@v1
+      - uses: tiennm99/ghglance@v1
         with:
           user: ${{ github.repository_owner }}
-          token: ${{ secrets.GHSTATS_TOKEN }}
+          token: ${{ secrets.GHGLANCE_TOKEN }}
           themes: dracula,github_dark,tokyonight
           tz: Asia/Saigon
           # start_of_week: monday   # optional; default sunday — rotates heatmap rows + weekday bars
@@ -38,7 +38,7 @@ jobs:
 
 ### Required secrets
 
-`GHSTATS_TOKEN`: a **classic** personal access token with at minimum:
+`GHGLANCE_TOKEN`: a **classic** personal access token with at minimum:
 
 | Scope | Needed for |
 | --- | --- |
@@ -47,7 +47,7 @@ jobs:
 
 Fine-grained PATs and the default `${{ github.token }}` lack the introspection scope for contribution calendars in many orgs, so a classic PAT is recommended.
 
-Create one at <https://github.com/settings/tokens> → "Generate new token (classic)" → select `read:user` (+ `repo` if needed) → save as repo secret `GHSTATS_TOKEN`.
+Create one at <https://github.com/settings/tokens> → "Generate new token (classic)" → select `read:user` (+ `repo` if needed) → save as repo secret `GHGLANCE_TOKEN`.
 
 ### Embedding in README
 
@@ -84,29 +84,29 @@ Install:
 
 ```sh
 # Linux x86_64 example
-curl -L https://github.com/tiennm99/ghstats/releases/latest/download/ghstats_linux_amd64.tar.gz \
+curl -L https://github.com/tiennm99/ghglance/releases/latest/download/ghglance_linux_amd64.tar.gz \
   | tar xz
-./ghstats -user YOUR_USERNAME
+./ghglance -user YOUR_USERNAME
 ```
 
 ## 3. go install
 
 ```sh
-go install github.com/tiennm99/ghstats@latest
+go install github.com/tiennm99/ghglance@latest
 ```
 
 Requires Go 1.26+. Puts the binary in `$(go env GOPATH)/bin`.
 
 ## Docker image
 
-Published to `ghcr.io/tiennm99/ghstats:<tag>` on each `v*` release via `.github/workflows/release.yml` (buildx, multi-tag: exact version, major.minor, major, latest).
+Published to `ghcr.io/tiennm99/ghglance:<tag>` on each `v*` release via `.github/workflows/release.yml` (buildx, multi-tag: exact version, major.minor, major, latest).
 
 The Action itself uses a runner-built image by default (`image: Dockerfile` in `action.yml`). To switch to the pre-built image for faster cold starts, edit `action.yml`:
 
 ```yaml
 runs:
   using: docker
-  image: docker://ghcr.io/tiennm99/ghstats:v1
+  image: docker://ghcr.io/tiennm99/ghglance:v1
 ```
 
 ## Release process
@@ -117,12 +117,12 @@ runs:
 3. On green, GHCR push + cross-platform binary artifacts happen automatically.
 4. The `update-major-tag` job force-moves the floating major tag (e.g. `v1`)
    to this release's commit after test + docker + binaries all pass.
-   Consumers pinned to `tiennm99/ghstats@v1` pick up the release on their
+   Consumers pinned to `tiennm99/ghglance@v1` pick up the release on their
    next Action run without a workflow edit.
 5. Docker base images and third-party actions are SHA-pinned (with version
    comments) so mutable-tag changes upstream can't rewrite a released image.
 6. **Marketplace:** the action is listed on the GitHub Marketplace as
-   [`ghstats`](https://github.com/marketplace/actions/ghstats); the listing
+   [`ghglance`](https://github.com/marketplace/actions/ghglance); the listing
    name comes from `name:` in `action.yml`. Publishing is a web-UI step —
    edit the GitHub release and tick "Publish this Action to the GitHub
    Marketplace" — since `action-gh-release` cannot publish it.

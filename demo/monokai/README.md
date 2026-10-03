@@ -1,4 +1,4 @@
-# ghstats — monokai
+# ghglance — monokai
 
 [← back to index](../README.md)
 

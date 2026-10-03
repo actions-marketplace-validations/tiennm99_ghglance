@@ -1,4 +1,4 @@
-# ghstats — ocean_dark
+# ghglance — ocean_dark
 
 [← back to index](../README.md)
 

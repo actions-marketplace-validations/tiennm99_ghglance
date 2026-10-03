@@ -1,4 +1,4 @@
-# ghstats — yeblu
+# ghglance — yeblu
 
 [← back to index](../README.md)
 

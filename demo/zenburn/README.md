@@ -1,4 +1,4 @@
-# ghstats — zenburn
+# ghglance — zenburn
 
 [← back to index](../README.md)
 

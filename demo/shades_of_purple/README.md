@@ -1,4 +1,4 @@
-# ghstats — shades_of_purple
+# ghglance — shades_of_purple
 
 [← back to index](../README.md)
 

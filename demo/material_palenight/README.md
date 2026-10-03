@@ -1,4 +1,4 @@
-# ghstats — material_palenight
+# ghglance — material_palenight
 
 [← back to index](../README.md)
 

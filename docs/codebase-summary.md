@@ -3,7 +3,7 @@
 ## Layout
 
 ```
-ghstats/
+ghglance/
 ├── main.go                              # CLI entry point; wires flags → fetchers → renderers
 ├── action.yml                           # GitHub Action metadata
 ├── entrypoint.sh                        # Action runtime; maps INPUT_* env → CLI flags

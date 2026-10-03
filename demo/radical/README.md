@@ -1,4 +1,4 @@
-# ghstats — radical
+# ghglance — radical
 
 [← back to index](../README.md)
 

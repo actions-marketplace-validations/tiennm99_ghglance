@@ -27,8 +27,8 @@ jobs:
           go-version: "1.26"
           cache: true
 
-      - name: Build ghstats
-        run: go build -trimpath -ldflags="-s -w" -o ghstats .
+      - name: Build ghglance
+        run: go build -trimpath -ldflags="-s -w" -o ghglance .
 
       - name: Render every card for every theme
         env:
@@ -36,7 +36,7 @@ jobs:
         run: |
           rm -rf demo
           mkdir -p demo
-          ./ghstats \
+          ./ghglance \
             -user "${{ github.repository_owner }}" \
             -themes all \
             -tz Asia/Saigon \
@@ -49,11 +49,11 @@ jobs:
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.repository }}
         run: |
-          themes=$(./ghstats -list-themes)
+          themes=$(./ghglance -list-themes)
 
           # Lightweight index so readers don't have to load ~975 images at once.
           {
-            echo "# ghstats demo gallery"
+            echo "# ghglance demo gallery"
             echo
             echo "Every card rendered for [\`$OWNER\`](https://github.com/$OWNER) in every supported theme. Click a theme to open its gallery page — each page embeds 16 SVGs, so only the theme you're reviewing is fetched."
             echo
@@ -87,7 +87,7 @@ jobs:
               printf '</tr>\n'
             }
             {
-              printf '# ghstats — %s\n\n' "$theme"
+              printf '# ghglance — %s\n\n' "$theme"
               printf '[← back to index](../README.md)\n\n'
               printf 'Rendered for [`%s`](https://github.com/%s). 16 SVGs laid out to ' "$OWNER" "$OWNER"
               printf 'match the author profile README table.\n\n'

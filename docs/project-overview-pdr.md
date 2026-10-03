@@ -1,4 +1,4 @@
-# ghstats — Product Development Requirements
+# ghglance — Product Development Requirements
 
 ## One-liner
 
@@ -13,7 +13,7 @@ Single-binary Go CLI + GitHub Action that renders 15 themed SVG cards summarisin
 
 - WakaTime-style editor telemetry.
 - Cloning repos or running linguist locally (lowlighter/metrics territory). A future `-accurate-languages` mode may add per-commit REST classification; clone-mode is out of scope for v1.
-- Real-time / per-request API server. ghstats is a scheduled batch renderer.
+- Real-time / per-request API server. ghglance is a scheduled batch renderer.
 
 ## Value proposition vs alternatives
 
@@ -22,7 +22,7 @@ Single-binary Go CLI + GitHub Action that renders 15 themed SVG cards summarisin
 | anuraghazra/github-readme-stats | JS | hosted service | No (byte-size only) |
 | vn7n24fzkq/github-profile-summary-cards | TS | Action + hosted | No (primary-language-per-repo) |
 | lowlighter/metrics (indepth) | JS | Action | Yes (clones + linguist-js) |
-| **ghstats** | Go | Action + CLI | Partial (byte-weighted today; REST-per-commit planned) |
+| **ghglance** | Go | Action + CLI | Partial (byte-weighted today; REST-per-commit planned) |
 
 Distinguishing traits:
 - **Single binary**: no Node, no Ruby, no Docker needed for CLI usage.

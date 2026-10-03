@@ -1,4 +1,4 @@
-# ghstats — dark
+# ghglance — dark
 
 [← back to index](../README.md)
 

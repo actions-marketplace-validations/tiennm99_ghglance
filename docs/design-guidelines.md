@@ -1,6 +1,6 @@
 # Design Guidelines
 
-Visual conventions for ghstats SVG cards. All cards share a single frame shape so they stack cleanly in a README — two cards sit side-by-side inside GitHub's ~816 px content column.
+Visual conventions for ghglance SVG cards. All cards share a single frame shape so they stack cleanly in a README — two cards sit side-by-side inside GitHub's ~816 px content column.
 
 ## Card frame
 

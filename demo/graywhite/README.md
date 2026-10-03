@@ -1,4 +1,4 @@
-# ghstats — graywhite
+# ghglance — graywhite
 
 [← back to index](../README.md)
 

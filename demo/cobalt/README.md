@@ -1,4 +1,4 @@
-# ghstats — cobalt
+# ghglance — cobalt
 
 [← back to index](../README.md)
 

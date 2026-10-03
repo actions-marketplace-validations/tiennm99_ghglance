@@ -1,4 +1,4 @@
-# ghstats — outrun
+# ghglance — outrun
 
 [← back to index](../README.md)
 

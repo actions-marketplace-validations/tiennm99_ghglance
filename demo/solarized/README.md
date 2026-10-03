@@ -1,4 +1,4 @@
-# ghstats — solarized
+# ghglance — solarized
 
 [← back to index](../README.md)
 

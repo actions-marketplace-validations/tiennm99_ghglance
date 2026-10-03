@@ -1,4 +1,4 @@
-# ghstats — date_night
+# ghglance — date_night
 
 [← back to index](../README.md)
 

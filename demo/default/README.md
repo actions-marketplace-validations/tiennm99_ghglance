@@ -1,4 +1,4 @@
-# ghstats — default
+# ghglance — default
 
 [← back to index](../README.md)
 

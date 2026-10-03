@@ -69,7 +69,7 @@ func (c *Client) query(ctx context.Context, q string, vars map[string]any, out a
 			return fmt.Errorf("new request: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("User-Agent", "ghstats")
+		req.Header.Set("User-Agent", "ghglance")
 		if c.token != "" {
 			req.Header.Set("Authorization", "bearer "+c.token)
 		}

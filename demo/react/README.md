@@ -1,4 +1,4 @@
-# ghstats — react
+# ghglance — react
 
 [← back to index](../README.md)
 

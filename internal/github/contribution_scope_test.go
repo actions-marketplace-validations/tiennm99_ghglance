@@ -59,7 +59,7 @@ func TestRepoAffiliationsAndOwnership(t *testing.T) {
 	orgWrite := orgAdmin
 	orgWrite.ViewerPermission = "WRITE"
 
-	own := repoNode{Name: "ghstats"}
+	own := repoNode{Name: "ghglance"}
 	own.Owner = &struct {
 		Login string `json:"login"`
 	}{Login: "tiennm99"}

@@ -1,4 +1,4 @@
-# ghstats — rose_pine
+# ghglance — rose_pine
 
 [← back to index](../README.md)
 

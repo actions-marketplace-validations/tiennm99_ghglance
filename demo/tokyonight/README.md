@@ -1,4 +1,4 @@
-# ghstats — tokyonight
+# ghglance — tokyonight
 
 [← back to index](../README.md)
 

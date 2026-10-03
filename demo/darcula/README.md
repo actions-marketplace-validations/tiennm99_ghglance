@@ -1,4 +1,4 @@
-# ghstats — darcula
+# ghglance — darcula
 
 [← back to index](../README.md)
 

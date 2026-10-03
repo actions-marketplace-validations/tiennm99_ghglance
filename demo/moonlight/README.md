@@ -1,4 +1,4 @@
-# ghstats — moonlight
+# ghglance — moonlight
 
 [← back to index](../README.md)
 

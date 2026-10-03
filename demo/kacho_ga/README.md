@@ -1,4 +1,4 @@
-# ghstats — kacho_ga
+# ghglance — kacho_ga
 
 [← back to index](../README.md)
 

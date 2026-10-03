@@ -1,4 +1,4 @@
-# ghstats — vision_friendly_dark
+# ghglance — vision_friendly_dark
 
 [← back to index](../README.md)
 

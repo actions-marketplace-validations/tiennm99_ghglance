@@ -1,4 +1,4 @@
-# ghstats — blue_green
+# ghglance — blue_green
 
 [← back to index](../README.md)
 

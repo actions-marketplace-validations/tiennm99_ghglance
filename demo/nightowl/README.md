@@ -1,4 +1,4 @@
-# ghstats — nightowl
+# ghglance — nightowl
 
 [← back to index](../README.md)
 

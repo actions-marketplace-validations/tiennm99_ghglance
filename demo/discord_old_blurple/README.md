@@ -1,4 +1,4 @@
-# ghstats — discord_old_blurple
+# ghglance — discord_old_blurple
 
 [← back to index](../README.md)
 

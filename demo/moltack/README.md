@@ -1,4 +1,4 @@
-# ghstats — moltack
+# ghglance — moltack
 
 [← back to index](../README.md)
 

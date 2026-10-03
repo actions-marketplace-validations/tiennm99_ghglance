@@ -1,4 +1,4 @@
-# ghstats — holi
+# ghglance — holi
 
 [← back to index](../README.md)
 

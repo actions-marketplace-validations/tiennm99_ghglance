@@ -1,4 +1,4 @@
-# ghstats — github
+# ghglance — github
 
 [← back to index](../README.md)
 

@@ -1,4 +1,4 @@
-# ghstats — vue
+# ghglance — vue
 
 [← back to index](../README.md)
 

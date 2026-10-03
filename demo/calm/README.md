@@ -1,4 +1,4 @@
-# ghstats — calm
+# ghglance — calm
 
 [← back to index](../README.md)
 

@@ -1,4 +1,4 @@
-# ghstats — merko
+# ghglance — merko
 
 [← back to index](../README.md)
 

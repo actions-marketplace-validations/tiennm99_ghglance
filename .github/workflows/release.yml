@@ -79,22 +79,22 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: |
-          bin=ghstats
-          [ "$GOOS" = windows ] && bin=ghstats.exe
+          bin=ghglance
+          [ "$GOOS" = windows ] && bin=ghglance.exe
           mkdir -p dist
           go build -trimpath -ldflags="-s -w" -o "dist/$bin" .
           cd dist
           if [ "$GOOS" = windows ]; then
-            zip "ghstats_${GOOS}_${GOARCH}.zip" "$bin"
+            zip "ghglance_${GOOS}_${GOARCH}.zip" "$bin"
           else
-            tar -czf "ghstats_${GOOS}_${GOARCH}.tar.gz" "$bin"
+            tar -czf "ghglance_${GOOS}_${GOARCH}.tar.gz" "$bin"
           fi
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          files: dist/ghstats_*.*
+          files: dist/ghglance_*.*
 
   # Move the floating major-version tag (e.g. v1) to this release's commit so
-  # consumers using `uses: tiennm99/ghstats@v1` automatically pick up each new
+  # consumers using `uses: tiennm99/ghglance@v1` automatically pick up each new
   # minor/patch release. Force-push is expected here — that's the point of a
   # floating tag.
   update-major-tag:

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tiennm99/ghstats/internal/github"
-	"github.com/tiennm99/ghstats/internal/theme"
+	"github.com/tiennm99/ghglance/internal/github"
+	"github.com/tiennm99/ghglance/internal/theme"
 )
 
 // TestPadToWeekGridRotatesByWeekStart checks that the leading blank pad

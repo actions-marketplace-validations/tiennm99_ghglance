@@ -1,16 +1,16 @@
-# ghstats
+# ghglance
 
 > Generate SVG cards summarizing a GitHub user's profile — written in Go.
 
-[![Marketplace](https://img.shields.io/badge/Marketplace-ghstats-2f81f7?logo=github)](https://github.com/marketplace/actions/ghstats)
-[![Release](https://img.shields.io/github/v/release/tiennm99/ghstats?color=blue)](https://github.com/tiennm99/ghstats/releases/latest)
-[![License](https://img.shields.io/github/license/tiennm99/ghstats?color=green)](./LICENSE)
+[![Marketplace](https://img.shields.io/badge/Marketplace-ghglance-2f81f7?logo=github)](https://github.com/marketplace/actions/ghglance)
+[![Release](https://img.shields.io/github/v/release/tiennm99/ghglance?color=blue)](https://github.com/tiennm99/ghglance/releases/latest)
+[![License](https://img.shields.io/github/license/tiennm99/ghglance?color=green)](./LICENSE)
 
-`ghstats` is a single-binary CLI (and a GitHub Action wrapping it) that fetches
+`ghglance` is a single-binary CLI (and a GitHub Action wrapping it) that fetches
 data for a GitHub user and writes a themed set of SVGs you can embed in your
 profile README.
 
-Marketplace listing: **[ghstats](https://github.com/marketplace/actions/ghstats)** · Source: [`tiennm99/ghstats`](https://github.com/tiennm99/ghstats)
+Marketplace listing: **[ghglance](https://github.com/marketplace/actions/ghglance)** · Source: [`tiennm99/ghglance`](https://github.com/tiennm99/ghglance)
 
 Cards rendered:
 
@@ -55,15 +55,15 @@ Live render against the author's profile, committed by [`.github/workflows/demo.
 
 ## In the wild
 
-- [**tiennm99/tiennm99**](https://github.com/tiennm99/tiennm99) — author's profile README, refreshed daily via `tiennm99/ghstats@v1`. Two-per-row layout, dracula theme.
+- [**tiennm99/tiennm99**](https://github.com/tiennm99/tiennm99) — author's profile README, refreshed daily via `tiennm99/ghglance@v1`. Two-per-row layout, dracula theme.
 
 ## Use as a GitHub Action (recommended)
 
-Drop this in `.github/workflows/ghstats.yml` in your **profile repo** (the one
+Drop this in `.github/workflows/ghglance.yml` in your **profile repo** (the one
 named after your username):
 
 ```yaml
-name: ghstats
+name: ghglance
 
 on:
   schedule:
@@ -78,10 +78,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: tiennm99/ghstats@v1
+      - uses: tiennm99/ghglance@v1
         with:
           user: ${{ github.repository_owner }}
-          token: ${{ secrets.GHSTATS_TOKEN }}   # classic PAT with read:user + repo
+          token: ${{ secrets.GHGLANCE_TOKEN }}   # classic PAT with read:user + repo
           themes: dracula,github_dark,tokyonight
           tz: Asia/Saigon
           include_forks: "true"
@@ -127,7 +127,7 @@ Then embed the cards in your `README.md`:
 | `include_private`  | `true`                           | Include private repos (requires PAT with `repo` scope; silently no-op otherwise) |
 | `include_org_repos`| `false`                          | Count org-owned repos you administer toward stars, repo count, languages, top-starred (needs `read:org`) |
 | `commit_changes`   | `false`                          | Commit generated cards back to the repo                                 |
-| `commit_message`   | `chore: update ghstats cards`    | Commit message                                                          |
+| `commit_message`   | `chore: update ghglance cards`    | Commit message                                                          |
 | `commit_branch`    | *(current ref)*                  | Target branch for auto-commit                                           |
 | `author_name`      | `github-actions[bot]`            | Commit author                                                           |
 | `author_email`     | `…@users.noreply.github.com`     | Commit email                                                            |
@@ -135,28 +135,28 @@ Then embed the cards in your `README.md`:
 ## Use as a CLI
 
 ```sh
-go install github.com/tiennm99/ghstats@latest
+go install github.com/tiennm99/ghglance@latest
 ```
 
 Or build from source:
 
 ```sh
-git clone https://github.com/tiennm99/ghstats
-cd ghstats
-go build -o ghstats .
+git clone https://github.com/tiennm99/ghglance
+cd ghglance
+go build -o ghglance .
 ```
 
 Then:
 
 ```sh
 export GITHUB_TOKEN=ghp_xxx
-ghstats -user tiennm99 -themes dracula,github_dark -tz Asia/Saigon -out output
+ghglance -user tiennm99 -themes dracula,github_dark -tz Asia/Saigon -out output
 ```
 
 Add `-include-org-repos` to also count org-owned repos you administer:
 
 ```sh
-ghstats -user tiennm99 -themes dracula -include-org-repos -out output
+ghglance -user tiennm99 -themes dracula -include-org-repos -out output
 ```
 
 | Flag                | Default         | Description                                                            |
@@ -191,7 +191,7 @@ ghstats -user tiennm99 -themes dracula -include-org-repos -out output
 
 ## Themes
 
-Run `ghstats -list-themes` for the full list (65 themes ported from
+Run `ghglance -list-themes` for the full list (65 themes ported from
 github-profile-summary-cards). Built-ins include `default`, `dark`, `dracula`,
 `github`, `github_dark`, `tokyonight`, `onedark`, `nord_dark`, `nord_bright`,
 `gruvbox`, `radical`, `synthwave`, `monokai`, `solarized`, `solarized_dark`,
@@ -230,7 +230,7 @@ reference render of every card in every theme, see the CI-built
 The default `${{ github.token }}` can read public user data but will not see
 your private-repo commits. For accurate stats, create a **classic** personal
 access token with `read:user` and `repo`, save it as a repo secret (e.g.
-`GHSTATS_TOKEN`), and pass it via the `token` input. `include_private`
+`GHGLANCE_TOKEN`), and pass it via the `token` input. `include_private`
 defaults to `true` so those commits are counted automatically once the token
 has `repo` scope; pass `include_private: "false"` if you want to keep private
 work out of the rendered cards even when the token can see it.

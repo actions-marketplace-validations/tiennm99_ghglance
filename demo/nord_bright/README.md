@@ -1,4 +1,4 @@
-# ghstats — nord_bright
+# ghglance — nord_bright
 
 [← back to index](../README.md)
 

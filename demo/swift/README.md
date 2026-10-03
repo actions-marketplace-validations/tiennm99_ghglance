@@ -1,4 +1,4 @@
-# ghstats — swift
+# ghglance — swift
 
 [← back to index](../README.md)
 

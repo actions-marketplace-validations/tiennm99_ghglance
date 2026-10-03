@@ -1,4 +1,4 @@
-# ghstats — transparent
+# ghglance — transparent
 
 [← back to index](../README.md)
 

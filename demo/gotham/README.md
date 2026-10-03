@@ -1,4 +1,4 @@
-# ghstats — gotham
+# ghglance — gotham
 
 [← back to index](../README.md)
 

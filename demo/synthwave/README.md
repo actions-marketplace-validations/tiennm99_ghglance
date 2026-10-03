@@ -1,4 +1,4 @@
-# ghstats — synthwave
+# ghglance — synthwave
 
 [← back to index](../README.md)
 

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tiennm99/ghstats/internal/github"
+	"github.com/tiennm99/ghglance/internal/github"
 )
 
 // GitHub's contributionCalendar is week-aligned, so a "last year" series for a

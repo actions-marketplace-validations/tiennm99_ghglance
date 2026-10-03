@@ -1,4 +1,4 @@
-# ghstats — great_gatsby
+# ghglance — great_gatsby
 
 [← back to index](../README.md)
 

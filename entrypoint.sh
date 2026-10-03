@@ -1,7 +1,7 @@
 #!/bin/sh
-# Entrypoint for the ghstats GitHub Action.
+# Entrypoint for the ghglance GitHub Action.
 # Inputs are passed via INPUT_* environment variables (set by the Action runtime).
-# This script translates them into ghstats CLI flags and optionally commits the
+# This script translates them into ghglance CLI flags and optionally commits the
 # generated SVGs back to the repository.
 
 set -eu
@@ -18,7 +18,7 @@ include_forks="${INPUT_INCLUDE_FORKS:-true}"
 include_private="${INPUT_INCLUDE_PRIVATE:-true}"
 include_org_repos="${INPUT_INCLUDE_ORG_REPOS:-false}"
 commit_changes="${INPUT_COMMIT_CHANGES:-false}"
-commit_message="${INPUT_COMMIT_MESSAGE:-chore: update ghstats cards}"
+commit_message="${INPUT_COMMIT_MESSAGE:-chore: update ghglance cards}"
 commit_branch="${INPUT_COMMIT_BRANCH:-}"
 author_name="${INPUT_AUTHOR_NAME:-github-actions[bot]}"
 author_email="${INPUT_AUTHOR_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
@@ -30,8 +30,8 @@ fi
 
 mkdir -p "$out"
 
-echo "Running ghstats for user=$user themes=$themes out=$out"
-ghstats \
+echo "Running ghglance for user=$user themes=$themes out=$out"
+ghglance \
   -user "$user" \
   -token "$token" \
   -out "$out" \

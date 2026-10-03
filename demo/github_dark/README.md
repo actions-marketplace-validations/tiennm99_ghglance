@@ -1,4 +1,4 @@
-# ghstats — github_dark
+# ghglance — github_dark
 
 [← back to index](../README.md)
 

@@ -1,4 +1,4 @@
-# ghstats — maroongold
+# ghglance — maroongold
 
 [← back to index](../README.md)
 

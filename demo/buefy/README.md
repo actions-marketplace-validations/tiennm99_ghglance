@@ -1,4 +1,4 @@
-# ghstats — buefy
+# ghglance — buefy
 
 [← back to index](../README.md)
 

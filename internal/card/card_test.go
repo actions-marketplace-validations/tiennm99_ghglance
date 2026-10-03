@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tiennm99/ghstats/internal/github"
-	"github.com/tiennm99/ghstats/internal/theme"
+	"github.com/tiennm99/ghglance/internal/github"
+	"github.com/tiennm99/ghglance/internal/theme"
 )
 
 func TestRenderAll(t *testing.T) {
@@ -35,7 +35,7 @@ func TestRenderAll(t *testing.T) {
 			{Name: "Python", Color: "#3572A5", Value: 150},
 		},
 		TopRepos: []github.RepoInfo{
-			{Owner: "tiennm99", Name: "ghstats", Stars: 42, PrimaryLanguage: "Go", PrimaryColor: "#00ADD8"},
+			{Owner: "tiennm99", Name: "ghglance", Stars: 42, PrimaryLanguage: "Go", PrimaryColor: "#00ADD8"},
 			{Owner: "tiennm99", Name: "some-app & <tool>", Stars: 17, PrimaryLanguage: "TypeScript", PrimaryColor: "#3178c6"},
 			{Owner: "tiennm99", Name: "fork-only", Stars: 99, IsFork: true},
 		},

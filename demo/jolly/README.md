@@ -1,4 +1,4 @@
-# ghstats — jolly
+# ghglance — jolly
 
 [← back to index](../README.md)
 

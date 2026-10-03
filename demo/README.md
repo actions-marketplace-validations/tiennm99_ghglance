@@ -1,4 +1,4 @@
-# ghstats demo gallery
+# ghglance demo gallery
 
 Every card rendered for [`tiennm99`](https://github.com/tiennm99) in every supported theme. Click a theme to open its gallery page — each page embeds 16 SVGs, so only the theme you're reviewing is fetched.
 

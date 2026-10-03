@@ -1,4 +1,4 @@
-# ghstats — algolia
+# ghglance — algolia
 
 [← back to index](../README.md)
 

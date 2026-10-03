@@ -1,4 +1,4 @@
-# ghstats — gruvbox
+# ghglance — gruvbox
 
 [← back to index](../README.md)
 

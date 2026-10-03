@@ -1,4 +1,4 @@
-# ghstats — blueberry
+# ghglance — blueberry
 
 [← back to index](../README.md)
 

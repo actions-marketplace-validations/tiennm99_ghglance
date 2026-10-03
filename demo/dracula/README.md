@@ -1,4 +1,4 @@
-# ghstats — dracula
+# ghglance — dracula
 
 [← back to index](../README.md)
 

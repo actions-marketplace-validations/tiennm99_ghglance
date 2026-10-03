@@ -1,4 +1,4 @@
-name: ghstats
+name: ghglance
 description: Generate GitHub profile summary SVG cards (profile, languages, stats, productive time, contributions)
 author: tiennm99
 branding:
@@ -61,7 +61,7 @@ inputs:
   commit_message:
     description: Commit message used when commit_changes is true
     required: false
-    default: "chore: update ghstats cards"
+    default: "chore: update ghglance cards"
   commit_branch:
     description: Branch to commit to (defaults to the current ref)
     required: false

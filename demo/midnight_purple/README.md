@@ -1,4 +1,4 @@
-# ghstats — midnight_purple
+# ghglance — midnight_purple
 
 [← back to index](../README.md)
 

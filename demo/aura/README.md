@@ -1,4 +1,4 @@
-# ghstats — aura
+# ghglance — aura
 
 [← back to index](../README.md)
 

@@ -1,4 +1,4 @@
-# ghstats — highcontrast
+# ghglance — highcontrast
 
 [← back to index](../README.md)
 

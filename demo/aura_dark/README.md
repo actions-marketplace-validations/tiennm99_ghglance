@@ -1,4 +1,4 @@
-# ghstats — aura_dark
+# ghglance — aura_dark
 
 [← back to index](../README.md)
 

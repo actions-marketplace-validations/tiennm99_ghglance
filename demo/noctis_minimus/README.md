@@ -1,4 +1,4 @@
-# ghstats — noctis_minimus
+# ghglance — noctis_minimus
 
 [← back to index](../README.md)
 

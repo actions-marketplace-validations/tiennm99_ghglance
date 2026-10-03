@@ -1,4 +1,4 @@
-# ghstats
+# ghglance
 
 Single-binary Go CLI that renders GitHub profile cards as SVG, wrapped by a
 published GitHub Action. `main.go` parses flags → `internal/github` fetches →
@@ -15,7 +15,7 @@ them ships a half-wired feature or a README that lies:
 3. `entrypoint.sh` — the `INPUT_*` → flag translation
 4. `README.md` — **both** reference tables (Action inputs, CLI flags) **and
    the runnable examples**: the workflow YAML under "Use as a GitHub Action"
-   and the `ghstats …` command under "Use as a CLI"
+   and the `ghglance …` command under "Use as a CLI"
 5. `docs/system-architecture.md` — when the knob changes the fetch pipeline
    or its query cost
 

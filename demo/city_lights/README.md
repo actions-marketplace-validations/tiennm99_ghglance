@@ -1,4 +1,4 @@
-# ghstats — city_lights
+# ghglance — city_lights
 
 [← back to index](../README.md)
 

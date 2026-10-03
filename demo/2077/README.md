@@ -1,4 +1,4 @@
-# ghstats — 2077
+# ghglance — 2077
 
 [← back to index](../README.md)
 

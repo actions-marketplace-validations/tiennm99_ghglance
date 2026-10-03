@@ -1,4 +1,4 @@
-# ghstats — onedark
+# ghglance — onedark
 
 [← back to index](../README.md)
 

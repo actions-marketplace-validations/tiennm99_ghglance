@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       - SERVICE_FQDN_GHGLANCE_8080
-      - GITHUB_TOKEN=${GHGLANCE_GITHUB_TOKEN:?set a public-only GitHub token}
+      - GITHUB_TOKEN=${GHGLANCE_TOKEN:?set a public-only GitHub token}
     volumes:
       - ghglance-data:/data
     healthcheck:

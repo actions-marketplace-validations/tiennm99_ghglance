@@ -253,7 +253,7 @@ In Coolify:
 
 1. Create a resource from this Git repository with the **Docker Compose**
    build pack and compose file `/compose.yml`.
-2. Set `GHGLANCE_GITHUB_TOKEN` (see [`.env.example`](./.env.example)) to a
+2. Set `GHGLANCE_TOKEN` (see [`.env.example`](./.env.example)) to a
    public-only token: a classic PAT with only `read:user`, never `repo`.
    `compose.yml` requires it and passes it to the container as
    `GITHUB_TOKEN`. The distinct name keeps a `GITHUB_TOKEN` exported in your

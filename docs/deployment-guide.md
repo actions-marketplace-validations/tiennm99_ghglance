@@ -108,10 +108,10 @@ the `ghglance-data` volume, and health-checks `/healthz` with busybox
 
 | Variable | Needed for |
 | --- | --- |
-| `GHGLANCE_GITHUB_TOKEN` | Required by `compose.yml`, which passes it to the container as `GITHUB_TOKEN` for token-less submissions. Must be public-only: a classic PAT with just `read:user`. A token with `repo` scope or any private-repo access is refused for token-less jobs (GitHub would count private contributions in totals and calendars). |
+| `GHGLANCE_TOKEN` | Required by `compose.yml`, which passes it to the container as `GITHUB_TOKEN` for token-less submissions. Must be public-only: a classic PAT with just `read:user`. A token with `repo` scope or any private-repo access is refused for token-less jobs (GitHub would count private contributions in totals and calendars). |
 
 Coolify: create a Docker Compose resource from this repo, compose file
-`/compose.yml`, set `GHGLANCE_GITHUB_TOKEN`, assign the domain, deploy. Server flags
+`/compose.yml`, set `GHGLANCE_TOKEN`, assign the domain, deploy. Server flags
 (`-cooldown`, `-retention`, `-workers`, `-timeout`) are changed by editing `command:` in
 `compose.yml`. Steps for a plain Docker host and the request-handling rules
 are in the README's "Run the web UI" section.

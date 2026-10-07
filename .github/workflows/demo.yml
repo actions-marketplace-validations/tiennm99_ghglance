@@ -32,7 +32,7 @@ jobs:
 
       - name: Render every card for every theme
         env:
-          GITHUB_TOKEN: ${{ secrets.GHSTATS_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GHGLANCE_TOKEN }}
         run: |
           rm -rf demo
           mkdir -p demo

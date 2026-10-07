@@ -39,32 +39,19 @@
   {{range .Cards}}
   <li class="card">
     <figure>
-      <div class="card-image"><img src="{{.Src}}" alt="{{.Name}} card for {{$.Login}}" loading="lazy" decoding="async"></div>
-      <figcaption>
-        <span class="card-name">{{.Name}}</span>
-        <div class="copy-row">
-          <input type="text" readonly value="{{.URL}}" aria-label="Embed URL for the {{.Name}} card">
-          <button type="button" data-copy="{{.URL}}">Copy</button>
-        </div>
-      </figcaption>
+      <div class="card-image"><img src="{{.Src}}" alt="{{.Name}} card for {{$.Login}}" decoding="async"></div>
+      <figcaption><span class="card-name">{{.Name}}</span></figcaption>
     </figure>
   </li>
   {{end}}
 </ul>
-
-<section class="panel">
-  <h2>Embed every card</h2>
-  <label for="markdown">Markdown for a README ({{.Theme}})</label>
-  <textarea id="markdown" readonly rows="8" spellcheck="false">{{.Markdown}}</textarea>
-  <button type="button" data-copy-target="markdown">Copy Markdown</button>
-</section>
 {{end}}
 
 {{if not .Job.Active}}
 <section class="panel">
   <h2>{{if .Meta}}Regenerate{{else}}Try again{{end}}</h2>
-  {{if .ExpiresIn}}<p class="hint">These cards are deleted in about {{.ExpiresIn}}; regenerate to keep embedded links working.</p>{{end}}
-  {{if .CooldownLeft}}<p class="hint">Without a token these cards can be regenerated in {{.CooldownLeft}}. With your own token you can regenerate now.</p>{{end}}
+  {{if .ExpiresIn}}<p class="hint">These cards are deleted in about {{.ExpiresIn}}; regenerate to see them again after that.</p>{{end}}
+  {{if .CooldownLeft}}<p class="hint">With a sign-in or token for another account, these cards can be regenerated in {{.CooldownLeft}}. As {{.Login}}, you can regenerate now.</p>{{end}}
   {{template "form" .}}
 </section>
 {{end}}

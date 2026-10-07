@@ -84,7 +84,6 @@ h2 { font-size: 1.2rem; margin: 0 0 12px; }
 .hero { max-width: 720px; }
 .lead { color: var(--muted); font-size: 1.05rem; margin: 0 0 24px; }
 .hint { color: var(--muted); font-size: 0.85rem; margin: 6px 0 0; }
-.optional { color: var(--muted); font-weight: 400; }
 
 .alert {
   border: 1px solid var(--info-border);
@@ -120,7 +119,7 @@ form.gen, .panel {
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 label, legend { font-weight: 600; font-size: 0.92rem; }
 
-input[type="text"], input[type="password"], input[type="number"], select, textarea {
+input[type="text"], input[type="password"], input[type="number"], select {
   width: 100%;
   font: inherit;
   color: var(--text);
@@ -129,13 +128,11 @@ input[type="text"], input[type="password"], input[type="number"], select, textar
   border-radius: 8px;
   padding: 9px 11px;
 }
-input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--focus); }
-textarea { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85rem; resize: vertical; }
+input:focus-visible, select:focus-visible { border-color: var(--focus); }
 
 details.options { margin-bottom: 18px; }
 details.options summary { cursor: pointer; font-weight: 600; padding: 4px 0; width: max-content; }
 .options-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 20px; margin-top: 14px; }
-.field-wide { grid-column: 1 / -1; }
 
 fieldset.checks { border: 0; padding: 0; margin: 0 0 16px; display: flex; flex-direction: column; gap: 6px; }
 fieldset.checks label { font-weight: 400; display: flex; gap: 8px; align-items: center; }
@@ -157,10 +154,13 @@ button, .button {
 button:hover, .button:hover { border-color: var(--accent); }
 button.primary, .button { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 button.primary:hover { filter: brightness(1.08); }
-.token-create { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 8px 0 0; }
-.token-create .button { background: var(--surface); color: var(--text); border-color: var(--border); }
-.token-create .button:hover { border-color: var(--accent); }
-.token-create .hint { margin: 0; flex: 1 1 240px; }
+.signin .hint { max-width: 640px; }
+
+details.own-token { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 14px; }
+details.own-token summary { cursor: pointer; font-weight: 600; padding: 4px 0; width: max-content; }
+details.own-token .field { margin-top: 12px; }
+details.own-token .hint { max-width: 640px; }
+.token-create { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 0; }
 
 .user-head .meta { color: var(--muted); margin: 0 0 20px; overflow-wrap: anywhere; }
 
@@ -186,11 +186,5 @@ button.primary:hover { filter: brightness(1.08); }
   padding: 14px; background: var(--card-bg); min-height: 120px;
 }
 .card-image img { display: block; max-width: 100%; height: auto; }
-.card figcaption { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; }
+.card figcaption { padding: 12px 14px 14px; }
 .card-name { font-weight: 600; text-transform: capitalize; }
-.copy-row { display: flex; gap: 8px; }
-.copy-row input { font-size: 0.8rem; padding: 7px 9px; min-width: 0; }
-.copy-row button { flex: none; padding: 7px 12px; }
-
-.panel label { display: block; margin-bottom: 6px; }
-.panel textarea { margin-bottom: 12px; }

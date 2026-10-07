@@ -2,7 +2,10 @@ package web
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
+	"html"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -93,13 +96,30 @@ func newTestServer(t *testing.T, f *fakeFetcher) *Server {
 
 func newTestServerTimeout(t *testing.T, f *fakeFetcher, timeout time.Duration) *Server {
 	t.Helper()
+	return newServerWith(t, f, newFakeGitHub(t), timeout)
+}
+
+// testOAuth points sign-in at the fake GitHub g, so no test ever revokes a
+// token on the real one.
+func testOAuth(g *fakeGitHub) OAuthConfig {
+	return OAuthConfig{
+		ClientID:     testClientID,
+		ClientSecret: testClientSecret,
+		PublicURL:    testPublicURL + "/",
+		WebURL:       g.srv.URL,
+		APIURL:       g.srv.URL,
+	}
+}
+
+func newServerWith(t *testing.T, f *fakeFetcher, g *fakeGitHub, timeout time.Duration) *Server {
+	t.Helper()
 	s, err := New(Config{
 		DataDir:    t.TempDir(),
 		Cooldown:   time.Hour,
 		Workers:    2,
 		JobTimeout: timeout,
-		Token:      "server-token",
 		Fetcher:    f,
+		OAuth:      testOAuth(g),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -128,6 +148,17 @@ func form(kv ...string) func(string) string {
 		v.Set(kv[i], kv[i+1])
 	}
 	return v.Get
+}
+
+// signedIn parses a form and attaches token, as the sign-in callback does.
+func signedIn(t *testing.T, token string, kv ...string) submission {
+	t.Helper()
+	sub, _, err := parseSubmission(form(kv...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub.Token = token
+	return sub
 }
 
 func TestValidUsername(t *testing.T) {
@@ -164,7 +195,7 @@ func TestValidThemeAndCard(t *testing.T) {
 	}
 }
 
-func TestParseSubmissionForcesPrivacyWithoutToken(t *testing.T) {
+func TestParseSubmissionKeepsTicks(t *testing.T) {
 	sub, _, err := parseSubmission(form(
 		"user", "octocat", "tz", "Asia/Saigon", "start_of_week", "Mon",
 		"include_private", "1", "include_org_repos", "1", "include_forks", "1",
@@ -172,44 +203,38 @@ func TestParseSubmissionForcesPrivacyWithoutToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sub.Options.IncludePrivate || sub.Options.IncludeOrgRepos {
-		t.Errorf("server-token submission kept private=%v org=%v", sub.Options.IncludePrivate, sub.Options.IncludeOrgRepos)
+	o := sub.Options
+	if !o.IncludePrivate || !o.IncludeOrgRepos || !o.IncludeForks || o.StartOfWeek != "monday" || o.TZ != "Asia/Saigon" {
+		t.Errorf("options = %+v", o)
 	}
-	if !sub.Options.IncludeForks || sub.Options.StartOfWeek != "monday" || sub.Options.TZ != "Asia/Saigon" {
-		t.Errorf("options = %+v", sub.Options)
+	if o.CommitsPerRepo != defaultCommitsPerRepo || sub.Token != "" || sub.Pasted {
+		t.Errorf("submission = %+v", sub)
 	}
-	if sub.Options.CommitsPerRepo != defaultCommitsPerRepo {
-		t.Errorf("commits per repo = %d, want default", sub.Options.CommitsPerRepo)
+	sub, f, err := parseSubmission(form("user", "octocat", "token", " "+testToken+" "))
+	if err != nil || sub.Token != testToken || !sub.Pasted {
+		t.Errorf("pasted token = %+v, %v", sub, err)
 	}
-}
-
-func TestParseSubmissionHonorsOwnToken(t *testing.T) {
-	sub, _, err := parseSubmission(form(
-		"user", "octocat", "token", testToken, "include_private", "1", "include_org_repos", "1", "commits_per_repo", "0",
-	))
-	if err != nil {
-		t.Fatal(err)
+	if strings.Contains(fmt.Sprintf("%+v", f), testToken) {
+		t.Error("form values carry the pasted token")
 	}
-	if !sub.Options.IncludePrivate || !sub.Options.IncludeOrgRepos || sub.Token != testToken {
-		t.Errorf("own-token submission = %+v", sub)
-	}
-	if sub.Options.CommitsPerRepo != 0 {
-		t.Errorf("commits per repo = %d, want 0", sub.Options.CommitsPerRepo)
+	if sub, _, err := parseSubmission(form("user", "octocat", "commits_per_repo", "0")); err != nil || sub.Options.CommitsPerRepo != 0 {
+		t.Errorf("every commit = %+v, %v", sub.Options, err)
 	}
 }
 
 func TestParseSubmissionRejects(t *testing.T) {
 	cases := map[string]func(string) string{
-		"bad user":           form("user", "../etc"),
-		"empty user":         form("user", ""),
-		"bad tz":             form("user", "a", "tz", "../../etc/passwd"),
-		"local tz":           form("user", "a", "tz", "Local"),
-		"unknown tz":         form("user", "a", "tz", "Mars/Olympus"),
-		"bad week":           form("user", "a", "start_of_week", "moonday"),
-		"negative commits":   form("user", "a", "commits_per_repo", "-1"),
-		"huge commits":       form("user", "a", "commits_per_repo", "999999"),
-		"every commit, no t": form("user", "a", "commits_per_repo", "0"),
-		"header injection":   form("user", "a", "token", "ghp_abcdefghijklmnopqrstuvwxyz\r\nX: y"),
+		"bad user":         form("user", "../etc"),
+		"empty user":       form("user", ""),
+		"bad tz":           form("user", "a", "tz", "../../etc/passwd"),
+		"local tz":         form("user", "a", "tz", "Local"),
+		"unknown tz":       form("user", "a", "tz", "Mars/Olympus"),
+		"bad week":         form("user", "a", "start_of_week", "moonday"),
+		"negative commits": form("user", "a", "commits_per_repo", "-1"),
+		"huge commits":     form("user", "a", "commits_per_repo", "999999"),
+		"short token":      form("user", "a", "token", "ghp_short"),
+		"header injection": form("user", "a", "token", testToken+"\r\nX-Evil: 1"),
+		"token with space": form("user", "a", "token", "ghp_abc def0123456789abcdef"),
 	}
 	for name, get := range cases {
 		if _, _, err := parseSubmission(get); err == nil {
@@ -355,11 +380,11 @@ func TestQueueDedupsPerUser(t *testing.T) {
 	f := &fakeFetcher{gate: make(chan struct{})}
 	s := newTestServer(t, f)
 
-	sub, _, _ := parseSubmission(form("user", "octocat"))
+	sub := signedIn(t, testToken, "user", "octocat")
 	if created, err := s.queue.Submit(sub); !created || err != nil {
 		t.Fatalf("first submit = %v, %v", created, err)
 	}
-	again, _, _ := parseSubmission(form("user", "OctoCat"))
+	again := signedIn(t, testToken, "user", "OctoCat")
 	if created, err := s.queue.Submit(again); created || err != nil {
 		t.Fatalf("duplicate submit = %v, %v; want deduped", created, err)
 	}
@@ -376,40 +401,30 @@ func TestQueueDedupsPerUser(t *testing.T) {
 	waitIdle(t, s.queue, "octocat")
 }
 
-func TestQueueTokenHandling(t *testing.T) {
-	f := &fakeFetcher{viewer: "Boss", tokens: map[string]github.TokenInfo{
-		testToken: {Login: "boss", CanReadPrivate: true},
-	}}
-	s := newTestServer(t, f)
+func TestQueueOwnSignIn(t *testing.T) {
+	g := newFakeGitHub(t)
+	f := &fakeFetcher{tokens: map[string]github.TokenInfo{testToken: {Login: "boss", CanReadPrivate: true}}}
+	s := newServerWith(t, f, g, time.Minute)
 
-	// The server token's owner is refused without their own token.
-	sub, _, _ := parseSubmission(form("user", "boss"))
+	// A job without a sign-in token never fetches.
+	sub := signedIn(t, "", "user", "octocat")
 	s.queue.Submit(sub)
-	if st := waitIdle(t, s.queue, "boss"); st.State != stateFailed || st.Error != errOwner.Error() {
-		t.Fatalf("owner job = %+v", st)
+	if st := waitIdle(t, s.queue, "octocat"); st.State != stateFailed || st.Error != errNoToken.Error() {
+		t.Fatalf("token-less job = %+v", st)
 	}
 	if f.callCount() != 0 {
-		t.Fatal("owner was fetched with the server token")
+		t.Fatal("fetched without a sign-in token")
 	}
 
-	// Anyone else without a token uses the server token, public scope only.
-	sub, _, _ = parseSubmission(form("user", "octocat", "include_private", "1"))
-	s.queue.Submit(sub)
-	waitIdle(t, s.queue, "octocat")
-	c := f.lastCall()
-	if c.token != "server-token" || c.cfg.Options.IncludePrivate || c.cfg.Options.IncludeOrgRepos {
-		t.Errorf("server-token call = %+v", c)
-	}
-
-	// A submitter's token is used for their job and never persisted.
-	sub, _, _ = parseSubmission(form("user", "boss", "token", testToken, "include_private", "1"))
-	s.queue.Submit(sub)
+	// A sign-in as the target account keeps private scope; the token is
+	// used for the job, revoked, and never persisted.
+	s.queue.Submit(signedIn(t, testToken, "user", "boss", "include_private", "1"))
 	if st := waitIdle(t, s.queue, "boss"); st.State != stateDone {
-		t.Fatalf("own-token job = %+v", st)
+		t.Fatalf("own sign-in job = %+v", st)
 	}
-	c = f.lastCall()
+	c := f.lastCall()
 	if c.token != testToken || !c.cfg.Options.IncludePrivate || !c.cfg.Strict {
-		t.Errorf("own-token call = %+v", c)
+		t.Errorf("own sign-in call = %+v", c)
 	}
 	m, err := s.store.Meta("boss")
 	if err != nil || m.Scope != "private" {
@@ -425,47 +440,8 @@ func TestQueueTokenHandling(t *testing.T) {
 	if leftover != "" {
 		t.Error("token kept in memory after the job ended")
 	}
-}
-
-func TestCooldownAndTokenBypass(t *testing.T) {
-	f := &fakeFetcher{tokens: map[string]github.TokenInfo{testToken: {Login: "octocat"}}}
-	s := newTestServer(t, f)
-	h := s.Handler()
-	post := func(v url.Values, ip string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPost, "/generate", strings.NewReader(v.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.RemoteAddr = ip + ":1234"
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		return rec
-	}
-
-	rec := post(url.Values{"user": {"octocat"}}, "203.0.113.1")
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/u/octocat" {
-		t.Fatalf("first post = %d %q", rec.Code, rec.Header().Get("Location"))
-	}
-	waitIdle(t, s.queue, "octocat")
-
-	rec = post(url.Values{"user": {"octocat"}}, "203.0.113.2")
-	if loc := rec.Header().Get("Location"); loc != "/u/octocat?notice=fresh" {
-		t.Fatalf("cooldown post redirected to %q", loc)
-	}
-	if n := f.callCount(); n != 1 {
-		t.Fatalf("cooldown still fetched: %d calls", n)
-	}
-
-	rec = post(url.Values{"user": {"octocat"}, "token": {testToken}}, "203.0.113.3")
-	if loc := rec.Header().Get("Location"); loc != "/u/octocat" {
-		t.Fatalf("token post redirected to %q", loc)
-	}
-	waitIdle(t, s.queue, "octocat")
-	if n := f.callCount(); n != 2 {
-		t.Fatalf("token bypass did not fetch: %d calls", n)
-	}
-
-	// Cooldown expiry lets a token-less submission through again.
-	if left := s.store.cooldownLeft("octocat", time.Hour, time.Now().Add(2*time.Hour)); left != 0 {
-		t.Errorf("cooldown after expiry = %s", left)
+	if got := g.revokedTokens(); len(got) != 1 || got[0] != testToken {
+		t.Errorf("revoked = %q, want the sign-in token once", got)
 	}
 }
 
@@ -480,11 +456,35 @@ func TestHandlers(t *testing.T) {
 	}
 
 	rec := get("/")
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `action="/generate"`) {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `action="/auth/start"`) {
 		t.Fatalf("index = %d", rec.Code)
 	}
-	if rec.Header().Get("Content-Security-Policy") == "" || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
-		t.Error("index missing security headers")
+	body := rec.Body.String()
+	signInAt := strings.Index(body, "Sign in with GitHub")
+	tokenAt := strings.Index(body, `<details class="own-token">`)
+	if signInAt < 0 || tokenAt < signInAt || strings.Contains(body, `<details class="own-token" open`) {
+		t.Error("index lacks a collapsed token section below the sign-in button")
+	}
+	for _, want := range []string{
+		`<summary>Or use your own token</summary>`,
+		`name="token" type="password"`,
+		`href="https://github.com/settings/tokens/new?scopes=repo,read:user&amp;description=ghglance"`,
+		`target="_blank" rel="noopener noreferrer"`,
+		"never stored, never logged",
+		"visible on this site to anyone with the page link",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("index lacks %q", want)
+		}
+	}
+	// Enter in any field presses the first submit button: the sign-in one.
+	if strings.Count(body, `type="submit"`) != 2 || strings.Index(body, `type="submit"`) > signInAt {
+		t.Error("index submit buttons are not sign-in first, then the token button")
+	}
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "img-src 'self' data:;") || !strings.Contains(csp, "default-src 'none'") ||
+		!strings.Contains(csp, "script-src 'self';") || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("index security headers: CSP %q", csp)
 	}
 	if rec := get("/healthz"); rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != "ok" {
 		t.Errorf("healthz = %d %q", rec.Code, rec.Body.String())
@@ -502,37 +502,58 @@ func TestHandlers(t *testing.T) {
 
 	publishTest(t, s.store, "octocat")
 	rec = get("/u/octocat?theme=github_dark")
-	body := rec.Body.String()
-	if rec.Code != 200 || !strings.Contains(body, "/u/octocat/github_dark/stats.svg") || !strings.Contains(body, "http://example.com/u/octocat/github_dark/stats.svg") {
+	// html/template writes "+" in attributes as "&#43;"; compare decoded.
+	body = html.UnescapeString(rec.Body.String())
+	if rec.Code != 200 {
 		t.Fatalf("user page = %d", rec.Code)
 	}
-	if rec := get("/u/octocat?theme=../../etc"); !strings.Contains(rec.Body.String(), "/u/octocat/dracula/stats.svg") {
+	want, err := os.ReadFile(filepath.Join(s.store.dir, "octocat", "github_dark", "stats.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, `src="data:image/svg+xml;base64,`+base64.StdEncoding.EncodeToString(want)+`"`) {
+		t.Error("user page does not inline the stats card as a data: URI")
+	}
+	if n := strings.Count(body, `src="data:image/svg+xml;base64,`); n != 16 {
+		t.Errorf("user page inlines %d cards, want 16", n)
+	}
+	if !strings.Contains(body, `alt="stats card for octocat"`) {
+		t.Error("cards lack alt text")
+	}
+	// The page is shareable but suggests copying nothing: no copy buttons,
+	// no Markdown or HTML snippet, no card URL, no README or embed advice.
+	for _, leak := range []string{
+		"/u/octocat/github_dark/", "/u/octocat/dracula/", "stats.svg", "![", "<img src=&#34;", "&lt;img",
+		"Markdown", "data-copy", "Copy", `type="button"`, "<textarea", "readonly",
+		"embed", "Embed", "README", "GitHub Action",
+	} {
+		if strings.Contains(body, leak) {
+			t.Errorf("user page still offers a card link or embed: contains %q", leak)
+		}
+	}
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "img-src 'self' data:;") {
+		t.Errorf("user page CSP blocks data: images: %s", csp)
+	}
+	other, err := os.ReadFile(filepath.Join(s.store.dir, "octocat", "dracula", "stats.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := get("/u/octocat?theme=../../etc"); !strings.Contains(html.UnescapeString(rec.Body.String()), base64.StdEncoding.EncodeToString(other)) {
 		t.Error("invalid theme not replaced by default")
 	}
 
-	rec = get("/u/octocat/dracula/stats.svg")
-	if rec.Code != 200 || rec.Header().Get("Content-Type") != "image/svg+xml" {
-		t.Fatalf("card = %d %q", rec.Code, rec.Header().Get("Content-Type"))
-	}
-	if !strings.Contains(rec.Header().Get("Content-Security-Policy"), "default-src 'none'") ||
-		rec.Header().Get("X-Content-Type-Options") != "nosniff" ||
-		!strings.Contains(rec.Header().Get("Cache-Control"), "max-age") {
-		t.Errorf("card headers = %v", rec.Header())
-	}
-	if !strings.HasPrefix(rec.Body.String(), "<svg") {
-		t.Error("card body is not an SVG")
-	}
-
+	// There is no card route: nothing serves a card by URL.
 	for _, p := range []string{
+		"/u/octocat/dracula/stats.svg",
+		"/u/octocat/github_dark/stats.svg?v=1",
 		"/u/octocat/nope/stats.svg",
-		"/u/octocat/dracula/nope.svg",
 		"/u/octocat/dracula/meta.json",
 		"/u/octocat/..%2fmeta.json/stats.svg",
 		"/u/..%2f..%2fetc/dracula/stats.svg",
-		"/u/octocat/dracula/..%2f..%2fmeta.json",
 	} {
-		if rec := get(p); rec.Code != 404 {
-			t.Errorf("GET %s = %d, want 404", p, rec.Code)
+		rec := get(p)
+		if rec.Code != 404 || strings.Contains(rec.Header().Get("Content-Type"), "svg") || strings.Contains(rec.Body.String(), "<svg") {
+			t.Errorf("GET %s = %d %q, want a 404 page", p, rec.Code, rec.Header().Get("Content-Type"))
 		}
 	}
 
@@ -542,11 +563,11 @@ func TestHandlers(t *testing.T) {
 	}
 }
 
-func TestGenerateValidationAndLimits(t *testing.T) {
+func TestSubmitValidationAndLimits(t *testing.T) {
 	s := newTestServer(t, &fakeFetcher{})
 	h := s.Handler()
 	post := func(body, ip string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPost, "/generate", strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, "/auth/start", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.RemoteAddr = ip + ":1"
 		rec := httptest.NewRecorder()
@@ -557,8 +578,8 @@ func TestGenerateValidationAndLimits(t *testing.T) {
 	if rec := post("user=..%2Fetc", "198.51.100.1"); rec.Code != 400 {
 		t.Errorf("invalid user = %d", rec.Code)
 	}
-	if rec := post("user=a&token="+testToken, "198.51.100.2"); strings.Contains(rec.Body.String(), testToken) {
-		t.Error("token echoed back into the page")
+	if rec := post("user=a", "198.51.100.2"); rec.Code != http.StatusFound {
+		t.Errorf("valid post = %d, want a redirect to GitHub", rec.Code)
 	}
 	big := "user=octocat&pad=" + strings.Repeat("x", maxFormBytes)
 	if rec := post(big, "198.51.100.3"); rec.Code != 400 {
@@ -616,19 +637,33 @@ func TestClientKey(t *testing.T) {
 	}
 }
 
-func TestGenerateNeedsSomeToken(t *testing.T) {
-	f := &fakeFetcher{}
-	s, err := New(Config{DataDir: t.TempDir(), Workers: 1, Fetcher: f})
-	if err != nil {
-		t.Fatal(err)
+func TestNewRequiresOAuth(t *testing.T) {
+	g := newFakeGitHub(t)
+	full := testOAuth(g)
+	cases := map[string]struct {
+		cfg  OAuthConfig
+		want string
+	}{
+		"unset":         {OAuthConfig{}, "client ID, client secret, public URL"},
+		"no public url": {OAuthConfig{ClientID: full.ClientID, ClientSecret: full.ClientSecret}, "missing OAuth public URL"},
+		"no secret":     {OAuthConfig{ClientID: full.ClientID, PublicURL: full.PublicURL}, "missing OAuth client secret"},
+		"no client id":  {OAuthConfig{ClientSecret: full.ClientSecret, PublicURL: full.PublicURL}, "missing OAuth client ID"},
+		"bad url":       {OAuthConfig{ClientID: full.ClientID, ClientSecret: full.ClientSecret, PublicURL: "ghglance.example"}, "absolute http(s) URL"},
 	}
-	defer s.Close()
-	req := httptest.NewRequest(http.MethodPost, "/generate", strings.NewReader("user=octocat"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest || f.callCount() != 0 {
-		t.Errorf("token-less post on a token-less server = %d, %d fetches", rec.Code, f.callCount())
+	for name, c := range cases {
+		dir := t.TempDir()
+		s, err := New(Config{DataDir: dir, Workers: 1, Fetcher: &fakeFetcher{}, OAuth: c.cfg})
+		if err == nil {
+			s.Close()
+			t.Errorf("%s: server started", name)
+			continue
+		}
+		if !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: error %q does not mention %q", name, err, c.want)
+		}
+		if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+			t.Errorf("%s: data directory touched before the config was checked", name)
+		}
 	}
 }
 
@@ -655,24 +690,6 @@ func TestRateLimiterHardCap(t *testing.T) {
 	}
 }
 
-func TestServerTokenThatReadsPrivateIsRefused(t *testing.T) {
-	f := &fakeFetcher{tokens: map[string]github.TokenInfo{
-		"server-token": {Login: "operator", CanReadPrivate: true},
-	}}
-	s := newTestServer(t, f)
-	sub, _, _ := parseSubmission(form("user", "coworker"))
-	s.queue.Submit(sub)
-	if st := waitIdle(t, s.queue, "coworker"); st.State != stateFailed || st.Error != errServerPrivate.Error() {
-		t.Fatalf("job = %+v", st)
-	}
-	if f.callCount() != 0 {
-		t.Error("fetched with a private-capable server token")
-	}
-	if _, err := s.store.Meta("coworker"); !isNotExist(err) {
-		t.Errorf("cards published: %v", err)
-	}
-}
-
 func TestForeignTokenScope(t *testing.T) {
 	const publicToken = "ghp_publicONLYvalue0123456789abcdef"
 	f := &fakeFetcher{tokens: map[string]github.TokenInfo{
@@ -681,18 +698,17 @@ func TestForeignTokenScope(t *testing.T) {
 	}}
 	s := newTestServer(t, f)
 
-	// A private-capable token is only good for its own account.
-	sub, _, _ := parseSubmission(form("user", "xavier", "token", testToken, "include_private", "1"))
-	s.queue.Submit(sub)
-	if st := waitIdle(t, s.queue, "xavier"); st.State != stateFailed || !strings.Contains(st.Error, "belongs to alice") {
+	// A private-capable sign-in is only good for its own account.
+	s.queue.Submit(signedIn(t, testToken, "user", "xavier", "include_private", "1"))
+	if st := waitIdle(t, s.queue, "xavier"); st.State != stateFailed || !strings.Contains(st.Error, "signed in as alice") {
 		t.Fatalf("private-capable foreign token job = %+v", st)
 	}
 	if f.callCount() != 0 {
 		t.Fatal("fetched another user with a private-capable token")
 	}
 
-	// A public-only token renders public scope for someone else.
-	sub, _, _ = parseSubmission(form("user", "xavier", "token", publicToken, "include_private", "1", "include_org_repos", "1"))
+	// A public-only sign-in renders public scope for someone else.
+	sub := signedIn(t, publicToken, "user", "xavier", "include_private", "1", "include_org_repos", "1")
 	s.queue.Submit(sub)
 	if st := waitIdle(t, s.queue, "xavier"); st.State != stateDone {
 		t.Fatalf("public foreign token job = %+v", st)
@@ -704,13 +720,22 @@ func TestForeignTokenScope(t *testing.T) {
 		t.Errorf("meta = %+v, %v", m, err)
 	}
 
-	// ...and does not skip the cooldown on that account.
+	// ...and does not skip the cooldown on that account...
 	s.queue.Submit(sub)
 	if st := waitIdle(t, s.queue, "xavier"); st.State != stateFailed || st.Error != errFresh.Error() {
-		t.Fatalf("foreign token during cooldown = %+v", st)
+		t.Fatalf("foreign sign-in during cooldown = %+v", st)
 	}
 	if n := f.callCount(); n != 1 {
 		t.Errorf("fetched %d times, want 1", n)
+	}
+
+	// ...until the cooldown has passed.
+	s.queue.mu.Lock()
+	s.queue.now = func() time.Time { return time.Now().Add(2 * time.Hour) }
+	s.queue.mu.Unlock()
+	s.queue.Submit(sub)
+	if st := waitIdle(t, s.queue, "xavier"); st.State != stateDone {
+		t.Fatalf("foreign sign-in after the cooldown = %+v", st)
 	}
 }
 
@@ -726,8 +751,7 @@ func TestPartialFetchIsNotPublished(t *testing.T) {
 	f.mu.Lock()
 	f.stall = true
 	f.mu.Unlock()
-	sub, _, _ := parseSubmission(form("user", "octocat", "token", testToken))
-	s.queue.Submit(sub)
+	s.queue.Submit(signedIn(t, testToken, "user", "octocat"))
 	if st := waitIdle(t, s.queue, "octocat"); st.State != stateFailed || !strings.Contains(st.Error, "timed out") {
 		t.Fatalf("stalled job = %+v", st)
 	}
@@ -749,8 +773,7 @@ func TestPendingNoticeOnlyWhileActive(t *testing.T) {
 		return rec.Body.String()
 	}
 
-	sub, _, _ := parseSubmission(form("user", "octocat", "token", testToken))
-	s.queue.Submit(sub)
+	s.queue.Submit(signedIn(t, testToken, "user", "octocat"))
 	if !strings.Contains(get(), notice) {
 		t.Error("pending notice missing while the job runs")
 	}
@@ -766,8 +789,8 @@ func TestRateLimitedPostKeepsForm(t *testing.T) {
 	h := s.Handler()
 	var rec *httptest.ResponseRecorder
 	for range submitBurst + 1 {
-		req := httptest.NewRequest(http.MethodPost, "/generate",
-			strings.NewReader("user=--bad&tz=Asia%2FSaigon&commits_per_repo=123&token="+testToken))
+		req := httptest.NewRequest(http.MethodPost, "/auth/start",
+			strings.NewReader("user=--bad&tz=Asia%2FSaigon&commits_per_repo=123"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.RemoteAddr = "198.51.100.20:1"
 		rec = httptest.NewRecorder()
@@ -779,8 +802,5 @@ func TestRateLimitedPostKeepsForm(t *testing.T) {
 	}
 	if !strings.Contains(body, "--bad") || !strings.Contains(body, "Asia/Saigon") || !strings.Contains(body, `value="123"`) {
 		t.Error("429 page dropped the submitted form")
-	}
-	if strings.Contains(body, testToken) {
-		t.Error("token echoed back into the 429 page")
 	}
 }

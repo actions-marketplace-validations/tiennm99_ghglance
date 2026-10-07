@@ -1,6 +1,6 @@
 // ghglance web UI enhancements. Every page works without JavaScript; this
-// adds browser-timezone detection, token-aware checkboxes, copy buttons and
-// job-status polling.
+// adds browser-timezone detection, a live list of the GitHub permissions a
+// sign-in asks for, and job-status polling.
 'use strict';
 
 /**
@@ -17,71 +17,45 @@ function detectTimezone(input) {
 }
 
 /**
- * Enables the private/org checkboxes only while a token is entered, and
- * ticks private repos the first time a token appears.
+ * Lists the GitHub scopes a sign-in will request for the ticked options.
+ * Mirrors oauthScopes in internal/web/oauth.go.
+ * @param {boolean} includePrivate
+ * @param {boolean} includeOrgs
+ * @returns {string[]}
+ */
+function oauthScopes(includePrivate, includeOrgs) {
+  if (!includePrivate) return ['read:user'];
+  return includeOrgs ? ['repo', 'read:user', 'read:org'] : ['repo', 'read:user'];
+}
+
+/**
+ * Replaces the sign-in hint's general rule with the exact scopes for the
+ * current ticks, updated as they change.
  * @param {HTMLFormElement} form
  */
-function wireTokenScope(form) {
-  const token = /** @type {HTMLInputElement|null} */ (form.querySelector('input[name="token"]'));
-  if (!token) return;
-  const scoped = /** @type {NodeListOf<HTMLInputElement>} */ (form.querySelectorAll('input[data-needs-token]'));
-  let hadToken = false;
+function wireOAuthScopes(form) {
+  const hint = /** @type {HTMLElement|null} */ (form.querySelector('[data-oauth-scopes]'));
+  const priv = /** @type {HTMLInputElement|null} */ (form.querySelector('input[name="include_private"]'));
+  const orgs = /** @type {HTMLInputElement|null} */ (form.querySelector('input[name="include_org_repos"]'));
+  if (!hint || !priv || !orgs) return;
   const sync = () => {
-    const hasToken = token.value.trim() !== '';
-    scoped.forEach((box) => {
-      box.disabled = !hasToken;
-      if (hasToken && !hadToken && box.name === 'include_private') box.checked = true;
+    const scopes = oauthScopes(priv.checked, orgs.checked);
+    hint.textContent = '';
+    hint.append('GitHub will ask for: ');
+    scopes.forEach((scope, i) => {
+      if (i > 0) hint.append(', ');
+      const code = document.createElement('code');
+      code.textContent = scope;
+      hint.append(code);
     });
-    hadToken = hasToken;
+    hint.append(scopes.includes('repo')
+      ? '. repo is GitHub\'s only private-repository scope and includes write access; '
+      : '. Public data only; ');
+    hint.append('the token is used for this one generation, then revoked: never stored, never logged.');
   };
-  token.addEventListener('input', sync);
+  priv.addEventListener('change', sync);
+  orgs.addEventListener('change', sync);
   sync();
-}
-
-/**
- * Copies text to the clipboard, falling back to a selection copy.
- * @param {string} text
- * @returns {Promise<void>}
- */
-function copyText(text) {
-  if (navigator.clipboard && window.isSecureContext) {
-    return navigator.clipboard.writeText(text);
-  }
-  const area = document.createElement('textarea');
-  area.value = text;
-  area.setAttribute('readonly', '');
-  area.style.position = 'fixed';
-  area.style.opacity = '0';
-  document.body.appendChild(area);
-  area.select();
-  try {
-    document.execCommand('copy');
-  } finally {
-    area.remove();
-  }
-  return Promise.resolve();
-}
-
-/**
- * Wires a copy button; data-copy holds the text, data-copy-target names an
- * element whose value is copied.
- * @param {HTMLButtonElement} button
- */
-function wireCopy(button) {
-  const label = button.textContent;
-  button.addEventListener('click', () => {
-    let text = button.dataset.copy || '';
-    if (button.dataset.copyTarget) {
-      const el = /** @type {HTMLTextAreaElement|null} */ (document.getElementById(button.dataset.copyTarget));
-      text = el ? el.value : '';
-    }
-    copyText(text).then(
-      () => { button.textContent = 'Copied'; },
-      () => { button.textContent = 'Copy failed'; },
-    ).finally(() => {
-      setTimeout(() => { button.textContent = label; }, 1500);
-    });
-  });
 }
 
 /**
@@ -117,10 +91,10 @@ function pollStatus(box) {
       })
       .then((/** @type {{state: string, stage?: string, position?: number, elapsed_seconds?: number}} */ st) => {
         if (st.state !== 'queued' && st.state !== 'running') {
-          // Drop one-off notices such as ?notice=pending, which no longer
-          // describe the page once the job is over.
+          // Drop ?notice=pending, which no longer describes the page once
+          // the job is over; a granted-scope notice still does.
           const next = new URL(window.location.href);
-          next.searchParams.delete('notice');
+          if (next.searchParams.get('notice') === 'pending') next.searchParams.delete('notice');
           window.location.replace(next.toString());
           return;
         }
@@ -144,8 +118,7 @@ document.documentElement.classList.add('js');
 
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('input[data-autotz]').forEach((el) => detectTimezone(/** @type {HTMLInputElement} */ (el)));
-  document.querySelectorAll('form.gen').forEach((el) => wireTokenScope(/** @type {HTMLFormElement} */ (el)));
-  document.querySelectorAll('button[data-copy], button[data-copy-target]').forEach((el) => wireCopy(/** @type {HTMLButtonElement} */ (el)));
+  document.querySelectorAll('form.gen').forEach((el) => wireOAuthScopes(/** @type {HTMLFormElement} */ (el)));
   const progress = document.getElementById('progress');
   if (progress) pollStatus(progress);
 });

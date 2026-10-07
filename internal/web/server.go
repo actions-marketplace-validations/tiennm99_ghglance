@@ -1,13 +1,18 @@
 // Package web serves the ghglance web UI: a form that queues card
-// generation for any GitHub user, and pages that re-show the stored cards.
+// generation for any GitHub user on the visitor's own GitHub access (a
+// "Sign in with GitHub" token or a token they paste), and pages that show
+// the stored cards for quick viewing. Cards are inlined into the page as
+// data: URIs; there is no URL to link to or embed a card.
 package web
 
 import (
 	"context"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -34,11 +39,16 @@ const (
 )
 
 const (
-	pageCSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; " +
-		"connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
-	// Cards are static drawings: no scripts, no external fetches. Inline
-	// style attributes are the only thing they need.
-	svgCSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+	// pageCSP takes GitHub's origin as an extra form-action source: the
+	// sign-in form is redirected to GitHub's consent page, and browsers
+	// check redirects of a form submission against form-action too.
+	// img-src allows data: for the cards, which the user page inlines; an
+	// SVG loaded through <img> runs no scripts and fetches nothing.
+	pageCSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; " +
+		"connect-src 'self'; form-action 'self' %s; base-uri 'none'; frame-ancestors 'none'"
+	// maxCardBytes bounds one stored card read into the user page; real
+	// cards are a few tens of KiB at most.
+	maxCardBytes = 1 << 20
 )
 
 // Config configures the web server.
@@ -52,11 +62,12 @@ type Config struct {
 	Workers   int
 	// JobTimeout bounds one generation job (0 = no limit).
 	JobTimeout time.Duration
-	// Token is the server's own GitHub token, used for submissions that
-	// bring none. It never renders private or org-administered data.
-	Token string
 	// Fetcher overrides the GitHub fetch; nil uses the real API.
 	Fetcher Fetcher
+	// OAuth configures "Sign in with GitHub". It is required; visitors may
+	// paste their own token instead of signing in, but the server never
+	// uses a token of its own.
+	OAuth OAuthConfig
 }
 
 // Server holds the store, job queue and handlers.
@@ -67,12 +78,19 @@ type Server struct {
 	limiter *rateLimiter
 	pages   map[string]*template.Template
 	static  http.Handler
+	csp     string
+	oauth   *oauthApp
+	logins  *pendingLogins
 }
 
 // New opens the data directory and starts the job workers.
 func New(cfg Config) (*Server, error) {
 	if cfg.Fetcher == nil {
 		cfg.Fetcher = githubFetcher{}
+	}
+	oauth, err := newOAuthApp(cfg.OAuth)
+	if err != nil {
+		return nil, err
 	}
 	store, err := OpenStore(cfg.DataDir)
 	if err != nil {
@@ -88,14 +106,18 @@ func New(cfg Config) (*Server, error) {
 		store.Close()
 		return nil, err
 	}
-	return &Server{
+	s := &Server{
 		cfg:     cfg,
 		store:   store,
-		queue:   newQueue(store, cfg.Fetcher, cfg.Token, cfg.JobTimeout, cfg.Cooldown, cfg.Workers),
 		limiter: newRateLimiter(submitBurst, submitInterval),
 		pages:   pages,
 		static:  http.FileServerFS(staticFS),
-	}, nil
+		csp:     fmt.Sprintf(pageCSP, oauth.webOrigin()),
+		oauth:   oauth,
+		logins:  newPendingLogins(),
+	}
+	s.queue = newQueue(store, cfg.Fetcher, oauth.revoke, cfg.JobTimeout, cfg.Cooldown, cfg.Workers)
+	return s, nil
 }
 
 // Close stops the workers and releases the data directory.
@@ -113,9 +135,7 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	defer s.Close()
-	if cfg.Token == "" {
-		log.Printf("warn: GITHUB_TOKEN is empty; only submissions with their own token will succeed")
-	}
+	log.Printf("sign in with GitHub callback %s", s.oauth.redirectURI)
 
 	ln, err := net.Listen("tcp", cfg.Addr)
 	if err != nil {
@@ -131,9 +151,6 @@ func Run(ctx context.Context, cfg Config) error {
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 	log.Printf("serving on %s, data in %s", ln.Addr(), s.store.dir)
-	// Check the server token up front so a private-capable token is
-	// reported at startup, not on the first submission.
-	go s.queue.server(ctx)
 	go s.expireLoop(ctx)
 
 	select {
@@ -151,10 +168,10 @@ func Run(ctx context.Context, cfg Config) error {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleIndex)
-	mux.HandleFunc("POST /generate", s.handleGenerate)
+	mux.HandleFunc("POST /auth/start", s.handleAuthStart)
+	mux.HandleFunc("GET /auth/callback", s.handleAuthCallback)
 	mux.HandleFunc("GET /u/{user}", s.handleUser)
 	mux.HandleFunc("GET /u/{user}/status", s.handleStatus)
-	mux.HandleFunc("GET /u/{user}/{theme}/{card}", s.handleCard)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
@@ -166,15 +183,15 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	cop := http.NewCrossOriginProtection()
-	return commonHeaders(cop.Handler(mux))
+	return commonHeaders(cop.Handler(mux), s.csp)
 }
 
-func commonHeaders(next http.Handler) http.Handler {
+func commonHeaders(next http.Handler, csp string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
-		h.Set("Content-Security-Policy", pageCSP)
+		h.Set("Content-Security-Policy", csp)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -204,24 +221,26 @@ type pageData struct {
 	Themes       []string
 	Theme        string
 	Cards        []cardView
-	Markdown     string
 }
 
+// cardView is one card on the user page. Src is a data: URI of the stored
+// SVG, so the page carries the card itself and no card URL.
 type cardView struct {
 	Name string
-	Src  string
-	URL  string
+	Src  template.URL
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	s.render(w, http.StatusOK, "index", pageData{Title: "ghglance", Form: defaultForm()})
 }
 
-func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
+// readSubmission parses, rate-limits and validates a generation form. On
+// failure it has already written the response.
+func (s *Server) readSubmission(w http.ResponseWriter, r *http.Request) (submission, formValues, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 	if err := r.ParseForm(); err != nil {
 		s.render(w, http.StatusBadRequest, "index", pageData{Title: "ghglance", Error: "The form could not be read.", Form: defaultForm()})
-		return
+		return submission{}, formValues{}, false
 	}
 	sub, form, err := parseSubmission(r.PostForm.Get)
 	if !s.limiter.Allow(clientKey(r)) {
@@ -231,40 +250,39 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 			Error: "Too many submissions from your address. Wait a couple of minutes and try again.",
 			Form:  form,
 		})
-		return
+		return submission{}, formValues{}, false
 	}
 	if err != nil {
 		s.render(w, http.StatusBadRequest, "index", pageData{Title: "ghglance", Error: capitalize(err.Error()) + ".", Form: form})
-		return
+		return submission{}, formValues{}, false
 	}
+	return sub, form, true
+}
 
-	if sub.Token == "" && s.cfg.Token == "" {
-		s.render(w, http.StatusBadRequest, "index", pageData{
-			Title: "ghglance",
-			Error: "This server has no GitHub token of its own. Add yours under Options.",
-			Form:  form,
-		})
-		return
-	}
-
+// enqueue queues sub and redirects to the user's page, adding notice when
+// one is given. It reports whether a new job took the submission's token;
+// when not, the caller still owns it. The cooldown is checked by the job,
+// once it knows whose token it holds: a token for the target account
+// skips it.
+func (s *Server) enqueue(w http.ResponseWriter, r *http.Request, sub submission, form formValues, notice string) bool {
 	target := "/u/" + url.PathEscape(userKey(sub.Login))
 	if s.queue.Status(sub.Login).Active() {
 		http.Redirect(w, r, target+"?notice=pending", http.StatusSeeOther)
-		return
-	}
-	if sub.Token == "" && s.store.cooldownLeft(sub.Login, s.cfg.Cooldown, time.Now()) > 0 {
-		http.Redirect(w, r, target+"?notice=fresh", http.StatusSeeOther)
-		return
+		return false
 	}
 	created, err := s.queue.Submit(sub)
 	if err != nil {
 		s.render(w, http.StatusServiceUnavailable, "index", pageData{Title: "ghglance", Error: capitalize(err.Error()) + ".", Form: form})
-		return
+		return false
 	}
-	if !created {
+	switch {
+	case !created:
 		target += "?notice=pending"
+	case notice != "":
+		target += "?notice=" + url.QueryEscape(notice)
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
+	return created
 }
 
 func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
@@ -306,12 +324,14 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 		d.Theme = t
 	}
 	switch r.URL.Query().Get("notice") {
-	case "fresh":
-		d.Notice = "These cards are recent, so they were not regenerated."
 	case "pending":
 		if job.Active() {
 			d.Notice = "A generation for this user is already in progress."
 		}
+	case "granted-private":
+		d.Notice = "GitHub did not grant access to private repositories, so this generation counts public data only."
+	case "granted-org":
+		d.Notice = "GitHub did not grant read:org, so this generation leaves out org repos."
 	}
 	if meta != nil {
 		d.Login = meta.Login
@@ -322,16 +342,19 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.Retention > 0 {
 			d.ExpiresIn = humanDuration(max(meta.GeneratedAt.Add(s.cfg.Retention).Sub(time.Now()), time.Minute))
 		}
-		base := baseURL(r)
-		version := strconv.FormatInt(meta.GeneratedAt.Unix(), 10)
-		var md strings.Builder
 		for _, f := range card.Filenames() {
-			rel := "/u/" + d.Key + "/" + d.Theme + "/" + f
+			src, err := s.cardDataURI(login, d.Theme, f)
+			if err != nil {
+				// A set expiring or being replaced between the meta read
+				// and this one is not worth logging; it just drops a card.
+				if !isNotExist(err) {
+					log.Printf("read card %s/%s/%s: %v", userKey(login), d.Theme, f, err)
+				}
+				continue
+			}
 			name := strings.ReplaceAll(strings.TrimSuffix(f, ".svg"), "-", " ")
-			d.Cards = append(d.Cards, cardView{Name: name, Src: rel + "?v=" + version, URL: base + rel})
-			fmt.Fprintf(&md, "![%s](%s)\n", name, base+rel)
+			d.Cards = append(d.Cards, cardView{Name: name, Src: src})
 		}
-		d.Markdown = md.String()
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	s.render(w, http.StatusOK, "user", d)
@@ -348,26 +371,31 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(s.queue.Status(login))
 }
 
-func (s *Server) handleCard(w http.ResponseWriter, r *http.Request) {
-	f, err := s.store.OpenCard(r.PathValue("user"), r.PathValue("theme"), r.PathValue("card"))
+// cardDataURI reads one stored card and returns it as a base64 data: URI.
+// The bytes are our own renderer's output and base64 cannot break out of
+// the attribute, so the URI is marked safe for html/template, which would
+// otherwise replace any data: URL.
+func (s *Server) cardDataURI(login, themeID, file string) (template.URL, error) {
+	f, err := s.store.OpenCard(login, themeID, file)
 	if err != nil {
-		if !isNotExist(err) {
-			log.Printf("open card %s: %v", r.URL.Path, err)
-		}
-		http.NotFound(w, r)
-		return
+		return "", err
 	}
 	defer f.Close()
 	st, err := f.Stat()
-	if err != nil || !st.Mode().IsRegular() {
-		http.NotFound(w, r)
-		return
+	if err != nil {
+		return "", err
 	}
-	h := w.Header()
-	h.Set("Content-Type", "image/svg+xml")
-	h.Set("Content-Security-Policy", svgCSP)
-	h.Set("Cache-Control", "public, max-age=3600")
-	http.ServeContent(w, r, "", st.ModTime(), f)
+	if !st.Mode().IsRegular() {
+		return "", fs.ErrNotExist
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, maxCardBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(raw) > maxCardBytes {
+		return "", fmt.Errorf("card larger than %d bytes", maxCardBytes)
+	}
+	return template.URL("data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString(raw)), nil
 }
 
 func (s *Server) render(w http.ResponseWriter, status int, page string, d pageData) {
@@ -403,7 +431,8 @@ func parsePages() (map[string]*template.Template, error) {
 }
 
 // formFromOptions pre-fills the regenerate form with a set's last options.
-// Private scope stays ticked: it only takes effect with a token anyway.
+// Private and org scope are ticked only when the last generation used them,
+// so a regenerate asks GitHub for no more than the set already shows.
 func formFromOptions(login string, o Options) formValues {
 	return formValues{
 		User:            login,
@@ -411,19 +440,9 @@ func formFromOptions(login string, o Options) formValues {
 		StartOfWeek:     o.StartOfWeek,
 		IncludeForks:    o.IncludeForks,
 		IncludeOrgRepos: o.IncludeOrgRepos,
-		IncludePrivate:  true,
+		IncludePrivate:  o.IncludePrivate,
 		CommitsPerRepo:  strconv.Itoa(o.CommitsPerRepo),
 	}
-}
-
-// baseURL is the absolute origin for copyable embed links. The scheme
-// follows the proxy's X-Forwarded-Proto when one sits in front.
-func baseURL(r *http.Request) string {
-	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
-	return scheme + "://" + r.Host
 }
 
 func humanDuration(d time.Duration) string {

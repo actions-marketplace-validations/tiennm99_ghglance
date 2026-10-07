@@ -18,8 +18,9 @@ import (
 // path segment, which is what lets it name a directory under the data dir.
 var usernameRE = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
 
-// Tokens are only ever forwarded in an Authorization header; restricting
-// the charset rules out header injection and pasted whitespace.
+// Tokens, whether GitHub's token endpoint returned them or a visitor pasted
+// one, are only ever forwarded in an Authorization header; restricting the
+// charset rules out header injection.
 var tokenRE = regexp.MustCompile(`^[A-Za-z0-9_]{20,255}$`)
 
 // IANA zone names: letters, digits and _ + - / only. time.LoadLocation
@@ -59,7 +60,7 @@ func validCard(name string) bool {
 }
 
 // Options are the generation settings recorded in meta.json. They never
-// include the submitter's token.
+// include a token.
 type Options struct {
 	TZ              string `json:"tz"`
 	StartOfWeek     string `json:"start_of_week"`
@@ -69,15 +70,19 @@ type Options struct {
 	CommitsPerRepo  int    `json:"commits_per_repo"`
 }
 
-// submission is a validated form post.
+// submission is a validated form post. Token is either the token the
+// visitor pasted into the form (Pasted is true) or the sign-in token GitHub
+// issues at the callback. A sign-in token is revoked when its job ends; a
+// pasted one belongs to the visitor and is only dropped.
 type submission struct {
 	Login   string
 	Token   string
+	Pasted  bool
 	Options Options
 }
 
 // formValues is the raw form, kept so a rejected post re-renders as typed.
-// It never carries the token back to the page.
+// It never carries a pasted token back to the page.
 type formValues struct {
 	User            string
 	TZ              string
@@ -88,19 +93,22 @@ type formValues struct {
 	CommitsPerRepo  string
 }
 
+// defaultForm is the blank generation form. Private repos start unticked: a
+// sign-in asks for exactly what is ticked, and repo is a broad grant that
+// only helps when the username is the visitor's own account.
 func defaultForm() formValues {
 	return formValues{
 		TZ:             "UTC",
 		StartOfWeek:    "sunday",
 		IncludeForks:   true,
-		IncludePrivate: true,
 		CommitsPerRepo: strconv.Itoa(defaultCommitsPerRepo),
 	}
 }
 
-// parseSubmission validates a submitted form. Without the submitter's own
-// token, private and org-repo scope are forced off: the server token must
-// never surface its owner's private repos or the orgs it administers.
+// parseSubmission validates a generation form. The ticked scope is kept:
+// it picks the scopes a sign-in asks for, and the job still enforces who
+// the token, signed in or pasted, belongs to. A non-empty pasted token is
+// returned with Pasted set.
 func parseSubmission(get func(string) string) (submission, formValues, error) {
 	f := formValues{
 		User:            strings.TrimSpace(get("user")),
@@ -144,23 +152,15 @@ func parseSubmission(get func(string) string) (submission, formValues, error) {
 		}
 		perRepo = n
 	}
-	if perRepo == 0 && token == "" {
-		return submission{}, f, errors.New("sampling every commit (0) needs your own token")
-	}
 
-	opts := Options{
+	return submission{Login: f.User, Token: token, Pasted: token != "", Options: Options{
 		TZ:              tz,
 		StartOfWeek:     strings.ToLower(wd.String()),
 		IncludeForks:    f.IncludeForks,
 		IncludeOrgRepos: f.IncludeOrgRepos,
 		IncludePrivate:  f.IncludePrivate,
 		CommitsPerRepo:  perRepo,
-	}
-	if token == "" {
-		opts.IncludePrivate = false
-		opts.IncludeOrgRepos = false
-	}
-	return submission{Login: f.User, Token: token, Options: opts}, f, nil
+	}}, f, nil
 }
 
 // collectConfig maps validated options onto the shared fetch pipeline.

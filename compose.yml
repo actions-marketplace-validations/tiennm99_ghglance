@@ -5,6 +5,10 @@ services:
     entrypoint: ["ghglance"]
     command: ["-serve", ":8080", "-data-dir", "/data", "-retention", "24h"]
     restart: unless-stopped
+    # Tells Coolify's proxy which container port to route to, even when the
+    # domain is entered without a ":8080" suffix.
+    expose:
+      - "8080"
     environment:
       - SERVICE_FQDN_GHGLANCE_8080
       - GITHUB_TOKEN=${GHGLANCE_TOKEN:?set a public-only GitHub token}

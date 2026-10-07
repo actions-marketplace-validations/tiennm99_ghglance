@@ -163,7 +163,7 @@ ghglance -user tiennm99 -themes dracula -include-org-repos -out output
 | Flag                | Default         | Description                                                            |
 | ------------------- | --------------- | ---------------------------------------------------------------------- |
 | `-user`             | *(required)*    | GitHub username                                                        |
-| `-token`            | `$GITHUB_TOKEN` | Personal access token                                                  |
+| `-token`            | `$GITHUB_TOKEN` | Personal access token (not used by `-serve`)                           |
 | `-out`              | `output`        | Output directory (`<out>/<theme>/…svg`)                                |
 | `-themes`           | `dracula`       | Comma-separated theme ids, or `all`                                    |
 | `-tz`               | `Local`         | IANA timezone for productive-time cards                                |
@@ -177,23 +177,32 @@ ghglance -user tiennm99 -themes dracula -include-org-repos -out output
 | `-list-themes`      |                 | Print available theme ids and exit                                     |
 | `-serve`            |                 | Run the [web UI](#run-the-web-ui) on this address (e.g. `:8080`) instead of generating once |
 | `-data-dir`         | `data`          | Web UI only: directory holding generated cards                         |
-| `-cooldown`         | `6h`            | Web UI only: minimum age of a user's cards before a token-less submission regenerates them |
+| `-cooldown`         | `6h`            | Web UI only: minimum age of a user's cards before someone signed in as another account regenerates them |
 | `-retention`        | `24h`           | Web UI only: delete a user's cards this long after they were generated, `0` = keep forever |
 | `-workers`          | `2`             | Web UI only: concurrent generation jobs                                |
+| `-oauth-client-id`  | `$GHGLANCE_OAUTH_CLIENT_ID` | Web UI only, required: GitHub OAuth App client ID for [Sign in with GitHub](#sign-in-with-github) |
+| `-oauth-client-secret` | `$GHGLANCE_OAUTH_CLIENT_SECRET` | Web UI only, required: that OAuth App's client secret (never printed by `-help`) |
+| `-public-url`       | `$GHGLANCE_PUBLIC_URL` | Web UI only, required: the site's external origin; the OAuth callback is `<public-url>/auth/callback` |
 
-The five web UI flags are server-only: the Action (`action.yml`,
-`entrypoint.sh`) does not expose them.
+The web UI flags above (`-serve` through `-public-url`) are server-only:
+the Action (`action.yml`, `entrypoint.sh`) does not expose them.
 
 ## Run the web UI
 
 `-serve` turns the binary into a small web app: a form takes a GitHub
-username plus options, a background job renders all sixteen cards in every
-theme, and `/u/<username>` shows them again with a theme picker and
-copyable embed URLs. Cards are stored on disk and survive restarts.
+username plus options, the visitor signs in with GitHub, a background job
+renders all sixteen cards in every theme on that sign-in's token, and
+`/u/<username>` shows them again with a theme picker and copyable embed
+URLs. Cards are stored on disk and survive restarts.
+
+[Sign in with GitHub](#sign-in-with-github) is required: the server has no
+GitHub token of its own, and `-serve` refuses to start until the OAuth
+client ID, client secret and public URL are all set.
 
 ```sh
-export GITHUB_TOKEN=ghp_xxx
-ghglance -serve :8080 -data-dir data -retention 24h
+export GHGLANCE_OAUTH_CLIENT_SECRET=xxxx   # keep the secret out of the command line
+ghglance -serve :8080 -data-dir data -retention 24h \
+  -oauth-client-id Ov23xxxx -public-url http://localhost:8080
 # open http://localhost:8080
 ```
 
@@ -203,32 +212,23 @@ ghglance -serve :8080 -data-dir data -retention 24h
 | `/u/<user>` | The user's cards (`?theme=<id>` picks the theme), or job progress while one runs |
 | `/u/<user>/<theme>/<card>.svg` | One card, embeddable in a README |
 | `/u/<user>/status` | Job status as JSON, polled by the progress page |
+| `/auth/start` | Validates the form and redirects to GitHub's consent page |
+| `/auth/callback` | Finishes the sign-in and queues the job |
 | `/healthz` | Liveness probe |
 
 How submissions are handled:
 
-- **Server token.** Submissions without a token use the server's
-  `GITHUB_TOKEN`, with private repos and org repos forced off. That alone
-  does not hide private work: GitHub counts every private contribution a
-  token can see in the totals and the calendar. So the server token must be
-  public-only (a classic PAT with just `read:user`, or a fine-grained token
-  with public repositories only); a token with `repo` scope, or one that can
-  list any private repository, is refused for token-less jobs and logged at
-  startup. The token owner's own username is refused without a token too.
-- **Submitter's token.** An optional token in the form is used for that one
-  job, then dropped: never logged, never written to disk. When it belongs to
-  the username being generated, private repos count by default and the
-  cooldown is skipped. A token that belongs to someone else renders public
-  data only, does not skip the cooldown, and is refused outright if it can
-  read private repositories. The cards it renders are public on the site
+- **Every job runs on a sign-in token.** The token is used for that one
+  job, then revoked: never logged, never written to disk. Signed in as the
+  username being generated, the ticked private and org repos count and the
+  cooldown is skipped. Signed in as someone else, the job renders public
+  data only, does not skip the cooldown, and is refused outright if the
+  token can read private repositories. The cards are public on the site
   like any other.
-  A "Create a token on GitHub" button beside the field opens GitHub's
-  new-token page with a classic token's `repo` and `read:user` scopes
-  pre-ticked.
 - **Failures.** A job that fails or times out at any fetch stage publishes
   nothing, so an earlier complete set stays in place.
-- **Cooldown.** Without a token, cards younger than `-cooldown` are shown
-  instead of regenerated.
+- **Cooldown.** Cards younger than `-cooldown` are not regenerated by a
+  sign-in as another account; the owner's own sign-in skips the wait.
 - **Retention.** Cards are deleted `-retention` (default `24h`) after they
   were generated, checked at startup and hourly. The user's page then
   offers a fresh generation, and embedded card URLs return 404 until
@@ -238,6 +238,52 @@ How submissions are handled:
   every two minutes. A client is an IPv4 address or an IPv6 /64. Behind a
   reverse proxy on a private or loopback address, the client address comes
   from the last `X-Forwarded-For` hop.
+
+### Sign in with GitHub
+
+A visitor ticks their options, clicks **Sign in with GitHub & generate**,
+approves once on GitHub, and lands on their cards page while the job runs.
+
+- **Scopes follow the ticks**, never more: `read:user` for public data;
+  `repo read:user` when private repos are ticked (GitHub has no read-only
+  private scope); plus `read:org` when org repos are ticked too. The page
+  shows the list next to the button and updates it as boxes change.
+  Private repos start unticked.
+- **One token per generation.** The server exchanges GitHub's code (with
+  `state` bound to a short-lived cookie and PKCE `S256`) for a token, runs
+  one job with it, then revokes it through GitHub's API, whether the job
+  succeeded, failed or was dropped at shutdown. The token is never logged,
+  stored or sent to the browser.
+- **Fewer permissions granted than asked** downgrade the job to what was
+  granted, and the user's page says so. Cancelling on GitHub returns to the
+  form with the options kept.
+- **More permissions granted than asked** stop the sign-in: GitHub folds
+  every scope a user once granted the app into each new token, so a
+  public-only sign-in after an earlier private one comes back with `repo`.
+  The token is revoked, nothing is generated, and the form explains how to
+  match the ticks or revoke the app under GitHub **Settings > Applications
+  > Authorized OAuth Apps**.
+- **Another account.** Signing in as `alice` to generate `bob` renders
+  public data only, and is refused if private repos were ticked (the token
+  would then read private repos); untick them to generate someone else.
+
+The browser binding cookie is `__Host-ghglance_oauth` when the public URL
+is https, so another site on a sibling subdomain cannot plant it. A plain
+`http://` public URL cannot use that prefix, which leaves the binding
+weaker; use https outside local testing.
+
+To set it up, register an OAuth App: GitHub **Settings > Developer
+settings > OAuth Apps > New OAuth App**, with
+
+- **Homepage URL**: the site's address, e.g. `https://ghglance.example.com`
+- **Authorization callback URL**: `<public-url>/auth/callback`, e.g.
+  `https://ghglance.example.com/auth/callback`
+
+Then generate a client secret and give the server all three values
+(`-oauth-client-id`, `-oauth-client-secret`, `-public-url`, or the
+`GHGLANCE_OAUTH_CLIENT_ID`, `GHGLANCE_OAUTH_CLIENT_SECRET` and
+`GHGLANCE_PUBLIC_URL` environment variables). With any of them missing,
+`-serve` exits at startup with an error naming the missing settings.
 
 Each user takes about 9 MB on disk for an active profile (16 cards × every theme).
 
@@ -253,17 +299,17 @@ In Coolify:
 
 1. Create a resource from this Git repository with the **Docker Compose**
    build pack and compose file `/compose.yml`.
-2. Set `GHGLANCE_TOKEN` (see [`.env.example`](./.env.example)) to a
-   public-only token: a classic PAT with only `read:user`, never `repo`.
-   `compose.yml` requires it and passes it to the container as
-   `GITHUB_TOKEN`. The distinct name keeps a `GITHUB_TOKEN` exported in your
-   shell from silently replacing it during `docker compose up`.
+2. Register the [OAuth App](#sign-in-with-github) and set
+   `GHGLANCE_OAUTH_CLIENT_ID`, `GHGLANCE_OAUTH_CLIENT_SECRET` and
+   `GHGLANCE_PUBLIC_URL` (see [`.env.example`](./.env.example)); the public
+   URL is the domain from step 3, e.g. `https://ghglance.sg.miti99.com`.
+   `compose.yml` requires all three and refuses to start without them.
 3. Keep the generated domain or set your own on the `ghglance` service, then
    deploy.
 
-On a plain Docker host, copy `.env.example` to `.env`, fill in the token,
-add a `ports: ["8080:8080"]` entry to the service, and run (`.dockerignore`
-keeps `.env` and `data/` out of the image context):
+On a plain Docker host, copy `.env.example` to `.env`, fill in the three
+sign-in values, add a `ports: ["8080:8080"]` entry to the service, and run
+(`.dockerignore` keeps `.env` and `data/` out of the image context):
 
 ```sh
 docker compose up -d --build

@@ -30,11 +30,10 @@ const finishedJobTTL = time.Hour
 const queueCapacity = 64
 
 var (
-	errQueueFull     = errors.New("the generation queue is full, try again in a few minutes")
-	errStopped       = errors.New("server is shutting down")
-	errOwner         = errors.New("this account owns the server's token, so its cards need your own token")
-	errServerPrivate = errors.New("this server's GitHub token can read private repositories, so it cannot make public cards; add your own token under Options")
-	errFresh         = errors.New("these cards are recent; your token belongs to another account, so it does not skip the wait")
+	errQueueFull = errors.New("the generation queue is full, try again in a few minutes")
+	errStopped   = errors.New("server is shutting down")
+	errNoToken   = errors.New("this generation has no sign-in token; sign in with GitHub again")
+	errFresh     = errors.New("these cards are recent; you signed in as another account, so it does not skip the wait")
 )
 
 // Fetcher runs the GitHub fetch. Tests swap in a fake; the server uses
@@ -54,8 +53,9 @@ func (githubFetcher) TokenInfo(ctx context.Context, token string) (github.TokenI
 	return github.NewClient(token).TokenInfo(ctx)
 }
 
-// job is one queued generation. token is the submitter's own token, held
-// only until the job ends and never logged or persisted.
+// job is one queued generation. token is the submitter's sign-in token,
+// held only until the job ends, never logged or persisted, and revoked on
+// GitHub then.
 type job struct {
 	key   string
 	login string
@@ -84,12 +84,13 @@ func (s JobStatus) Active() bool { return s.State == stateQueued || s.State == s
 // Queue runs generation jobs on a fixed worker pool, with at most one queued
 // or running job per user.
 type Queue struct {
-	store       *Store
-	fetcher     Fetcher
-	serverToken string
-	timeout     time.Duration
-	cooldown    time.Duration
-	now         func() time.Time
+	store    *Store
+	fetcher  Fetcher
+	timeout  time.Duration
+	cooldown time.Duration
+	now      func() time.Time
+	// revoke deletes a sign-in token on GitHub once its job is over.
+	revoke func(token string)
 
 	mu      sync.Mutex
 	jobs    map[string]*job
@@ -97,30 +98,27 @@ type Queue struct {
 	wake    chan struct{}
 	closed  bool
 
-	serverMu   sync.Mutex
-	serverInfo *github.TokenInfo
-
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
-func newQueue(store *Store, fetcher Fetcher, serverToken string, timeout, cooldown time.Duration, workers int) *Queue {
+func newQueue(store *Store, fetcher Fetcher, revoke func(token string), timeout, cooldown time.Duration, workers int) *Queue {
 	if workers < 1 {
 		workers = 1
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	q := &Queue{
-		store:       store,
-		fetcher:     fetcher,
-		serverToken: serverToken,
-		timeout:     timeout,
-		cooldown:    cooldown,
-		now:         time.Now,
-		jobs:        map[string]*job{},
-		wake:        make(chan struct{}, queueCapacity),
-		ctx:         ctx,
-		cancel:      cancel,
+		store:    store,
+		fetcher:  fetcher,
+		timeout:  timeout,
+		cooldown: cooldown,
+		now:      time.Now,
+		revoke:   revoke,
+		jobs:     map[string]*job{},
+		wake:     make(chan struct{}, queueCapacity),
+		ctx:      ctx,
+		cancel:   cancel,
 	}
 	for range workers {
 		q.wg.Add(1)
@@ -184,17 +182,33 @@ func (q *Queue) Status(login string) JobStatus {
 }
 
 // Stop cancels running jobs, drops queued ones and waits for the workers.
+// Tokens of dropped jobs are revoked before it returns; running jobs revoke
+// theirs as their workers wind down.
 func (q *Queue) Stop() {
 	q.mu.Lock()
 	q.closed = true
+	var dropped []string
 	for _, j := range q.pending {
+		dropped = append(dropped, j.token)
 		j.token = ""
 		j.state, j.err = stateFailed, errStopped.Error()
 	}
 	q.pending = nil
 	q.mu.Unlock()
 	q.cancel()
+	var revokes sync.WaitGroup
+	for _, token := range dropped {
+		revokes.Go(func() { q.revokeToken(token) })
+	}
+	revokes.Wait()
 	q.wg.Wait()
+}
+
+// revokeToken revokes a sign-in token; an empty one has nothing to revoke.
+func (q *Queue) revokeToken(token string) {
+	if q.revoke != nil && token != "" {
+		q.revoke(token)
+	}
 }
 
 // pruneLocked forgets finished jobs older than finishedJobTTL.
@@ -227,8 +241,15 @@ func (q *Queue) worker() {
 
 		err := q.run(j)
 
+		// Revoke before reporting the job over, so a finished job never
+		// leaves a live sign-in token behind.
 		q.mu.Lock()
+		token := j.token
 		j.token = ""
+		q.mu.Unlock()
+		q.revokeToken(token)
+
+		q.mu.Lock()
 		j.finished = q.now()
 		if err != nil {
 			j.state, j.stage, j.err = stateFailed, "", err.Error()
@@ -262,35 +283,23 @@ func (q *Queue) run(j *job) error {
 	q.mu.Lock()
 	token := j.token
 	q.mu.Unlock()
+	if token == "" {
+		return errNoToken
+	}
 	opts := j.opts
-	ownToken := token != ""
-	if ownToken {
-		info, err := q.fetcher.TokenInfo(ctx, token)
-		if err != nil {
-			return errors.New("GitHub did not accept your token")
-		}
-		if !strings.EqualFold(info.Login, j.login) {
-			if info.CanReadPrivate {
-				return fmt.Errorf("your token belongs to %s and can read private repositories, so it can only generate cards for %s", info.Login, info.Login)
-			}
-			ownToken = false
-			opts.IncludePrivate, opts.IncludeOrgRepos = false, false
-			if q.store.cooldownLeft(j.login, q.cooldown, q.now()) > 0 {
-				return errFresh
-			}
-		}
-	} else {
-		info, err := q.server(ctx)
-		if err != nil {
-			return errors.New("could not verify the server token, try again later")
-		}
+	info, err := q.fetcher.TokenInfo(ctx, token)
+	if err != nil {
+		return errors.New("GitHub did not accept your sign-in token")
+	}
+	own := strings.EqualFold(info.Login, j.login)
+	if !own {
 		if info.CanReadPrivate {
-			return errServerPrivate
+			return fmt.Errorf("you signed in as %s with access to private repositories, so you can only generate cards for %s", info.Login, info.Login)
 		}
-		if info.Login != "" && strings.EqualFold(info.Login, j.login) {
-			return errOwner
+		opts.IncludePrivate, opts.IncludeOrgRepos = false, false
+		if q.store.cooldownLeft(j.login, q.cooldown, q.now()) > 0 {
+			return errFresh
 		}
-		token = q.serverToken
 	}
 
 	cfg := opts.collectConfig()
@@ -317,7 +326,7 @@ func (q *Queue) run(j *job) error {
 	q.mu.Unlock()
 
 	scope := "public"
-	if ownToken && opts.IncludePrivate {
+	if own && opts.IncludePrivate {
 		scope = "private"
 	}
 	return q.store.Publish(profile, Meta{
@@ -326,29 +335,6 @@ func (q *Queue) run(j *job) error {
 		Scope:       scope,
 		Options:     opts,
 	})
-}
-
-// server identifies the server token, cached after the first successful
-// lookup. An empty server token has no owner and no reach to protect.
-func (q *Queue) server(ctx context.Context) (github.TokenInfo, error) {
-	if q.serverToken == "" {
-		return github.TokenInfo{}, nil
-	}
-	q.serverMu.Lock()
-	defer q.serverMu.Unlock()
-	if q.serverInfo != nil {
-		return *q.serverInfo, nil
-	}
-	info, err := q.fetcher.TokenInfo(ctx, q.serverToken)
-	if err != nil {
-		log.Printf("server token lookup failed: %v", err)
-		return github.TokenInfo{}, err
-	}
-	if info.CanReadPrivate {
-		log.Printf("warn: GITHUB_TOKEN can read private repositories; token-less submissions are refused until it is replaced with a public-only token")
-	}
-	q.serverInfo = &info
-	return info, nil
 }
 
 // publicError trims a fetch error to something fit for the status page.

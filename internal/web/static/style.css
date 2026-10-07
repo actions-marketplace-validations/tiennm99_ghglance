@@ -84,7 +84,6 @@ h2 { font-size: 1.2rem; margin: 0 0 12px; }
 .hero { max-width: 720px; }
 .lead { color: var(--muted); font-size: 1.05rem; margin: 0 0 24px; }
 .hint { color: var(--muted); font-size: 0.85rem; margin: 6px 0 0; }
-.optional { color: var(--muted); font-weight: 400; }
 
 .alert {
   border: 1px solid var(--info-border);
@@ -135,7 +134,6 @@ textarea { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace
 details.options { margin-bottom: 18px; }
 details.options summary { cursor: pointer; font-weight: 600; padding: 4px 0; width: max-content; }
 .options-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 20px; margin-top: 14px; }
-.field-wide { grid-column: 1 / -1; }
 
 fieldset.checks { border: 0; padding: 0; margin: 0 0 16px; display: flex; flex-direction: column; gap: 6px; }
 fieldset.checks label { font-weight: 400; display: flex; gap: 8px; align-items: center; }
@@ -157,10 +155,7 @@ button, .button {
 button:hover, .button:hover { border-color: var(--accent); }
 button.primary, .button { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 button.primary:hover { filter: brightness(1.08); }
-.token-create { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 8px 0 0; }
-.token-create .button { background: var(--surface); color: var(--text); border-color: var(--border); }
-.token-create .button:hover { border-color: var(--accent); }
-.token-create .hint { margin: 0; flex: 1 1 240px; }
+.signin .hint { max-width: 640px; }
 
 .user-head .meta { color: var(--muted); margin: 0 0 20px; overflow-wrap: anywhere; }
 

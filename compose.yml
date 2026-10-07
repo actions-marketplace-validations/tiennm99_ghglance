@@ -11,7 +11,11 @@ services:
       - "8080"
     environment:
       - SERVICE_FQDN_GHGLANCE_8080
-      - GITHUB_TOKEN=${GHGLANCE_TOKEN:?set a public-only GitHub token}
+      # "Sign in with GitHub" (a GitHub OAuth App) is required: every
+      # generation runs on the visitor's own sign-in token.
+      - GHGLANCE_OAUTH_CLIENT_ID=${GHGLANCE_OAUTH_CLIENT_ID:?set the GitHub OAuth App client ID}
+      - GHGLANCE_OAUTH_CLIENT_SECRET=${GHGLANCE_OAUTH_CLIENT_SECRET:?set the GitHub OAuth App client secret}
+      - GHGLANCE_PUBLIC_URL=${GHGLANCE_PUBLIC_URL:?set the external origin, e.g. https://ghglance.example.com}
     volumes:
       - ghglance-data:/data
     healthcheck:

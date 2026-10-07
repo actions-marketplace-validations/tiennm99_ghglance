@@ -64,7 +64,7 @@
 <section class="panel">
   <h2>{{if .Meta}}Regenerate{{else}}Try again{{end}}</h2>
   {{if .ExpiresIn}}<p class="hint">These cards are deleted in about {{.ExpiresIn}}; regenerate to keep embedded links working.</p>{{end}}
-  {{if .CooldownLeft}}<p class="hint">Without a token these cards can be regenerated in {{.CooldownLeft}}. With your own token you can regenerate now.</p>{{end}}
+  {{if .CooldownLeft}}<p class="hint">Signed in as another account, these cards can be regenerated in {{.CooldownLeft}}. Signed in as {{.Login}}, you can regenerate now.</p>{{end}}
   {{template "form" .}}
 </section>
 {{end}}

@@ -108,10 +108,21 @@ the `ghglance-data` volume, and health-checks `/healthz` with busybox
 
 | Variable | Needed for |
 | --- | --- |
-| `GHGLANCE_TOKEN` | Required by `compose.yml`, which passes it to the container as `GITHUB_TOKEN` for token-less submissions. Must be public-only: a classic PAT with just `read:user`. A token with `repo` scope or any private-repo access is refused for token-less jobs (GitHub would count private contributions in totals and calendars). |
+| `GHGLANCE_OAUTH_CLIENT_ID` | Required. Client ID of the GitHub OAuth App behind "Sign in with GitHub" (`-oauth-client-id`). |
+| `GHGLANCE_OAUTH_CLIENT_SECRET` | Required. That OAuth App's client secret (`-oauth-client-secret`). Never logged or printed. |
+| `GHGLANCE_PUBLIC_URL` | Required. The site's external origin, e.g. `https://ghglance.sg.miti99.com` (`-public-url`). The OAuth App's callback URL must be exactly `<public-url>/auth/callback`. |
 
-Coolify: create a Docker Compose resource from this repo, compose file
-`/compose.yml`, set `GHGLANCE_TOKEN`, assign the domain, deploy. Server flags
+The web UI is sign-in only: the server holds no GitHub token, and every
+generation runs on the visitor's OAuth token, revoked when the job ends.
+`compose.yml` refuses to start while any of the three variables is empty,
+and `-serve` exits with an error naming the missing settings.
+
+Coolify: register an OAuth App (GitHub **Settings > Developer settings >
+OAuth Apps > New OAuth App**; homepage URL = the domain, authorization
+callback URL = `<domain>/auth/callback`) and generate a client secret.
+Then create a Docker Compose resource from this repo, compose file
+`/compose.yml`, set the three variables, assign the domain, and deploy;
+the startup log prints the callback URL it uses. Server flags
 (`-cooldown`, `-retention`, `-workers`, `-timeout`) are changed by editing `command:` in
 `compose.yml`. Steps for a plain Docker host and the request-handling rules
 are in the README's "Run the web UI" section.

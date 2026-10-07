@@ -2,6 +2,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -20,7 +21,7 @@ import (
 func main() {
 	var (
 		user           = flag.String("user", "", "GitHub username (required)")
-		token          = flag.String("token", os.Getenv("GITHUB_TOKEN"), "GitHub token (or env GITHUB_TOKEN)")
+		token          = flag.String("token", os.Getenv("GITHUB_TOKEN"), "GitHub token (or env GITHUB_TOKEN); not used by -serve, which runs every generation on the visitor's sign-in")
 		out            = flag.String("out", "output", "output directory")
 		themesFlag     = flag.String("themes", "dracula", "comma-separated theme ids, or 'all'")
 		tzName         = flag.String("tz", "Local", "timezone for productive-time card (IANA name, e.g. Asia/Saigon)")
@@ -34,9 +35,14 @@ func main() {
 		listThemes     = flag.Bool("list-themes", false, "print available theme ids and exit")
 		serve          = flag.String("serve", "", "run the web UI on this address (e.g. :8080) instead of generating once")
 		dataDir        = flag.String("data-dir", "data", "web UI: directory holding generated cards")
-		cooldown       = flag.Duration("cooldown", 6*time.Hour, "web UI: minimum age of a user's cards before they can be regenerated without the submitter's own token")
+		cooldown       = flag.Duration("cooldown", 6*time.Hour, "web UI: minimum age of a user's cards before someone signed in as another account can regenerate them")
 		retention      = flag.Duration("retention", 24*time.Hour, "web UI: delete a user's generated cards this long after they were generated (0 = keep forever)")
 		workers        = flag.Int("workers", 2, "web UI: concurrent generation jobs")
+		// Empty defaults keep the secret out of -help; the env fallback is
+		// applied after parsing.
+		oauthID     = flag.String("oauth-client-id", "", "web UI, required: GitHub OAuth App client ID for \"Sign in with GitHub\" (or env GHGLANCE_OAUTH_CLIENT_ID)")
+		oauthSecret = flag.String("oauth-client-secret", "", "web UI, required: GitHub OAuth App client secret (or env GHGLANCE_OAUTH_CLIENT_SECRET)")
+		publicURL   = flag.String("public-url", "", "web UI, required: external origin, e.g. https://ghglance.example.com; the OAuth callback is <public-url>/auth/callback (or env GHGLANCE_PUBLIC_URL)")
 	)
 	flag.Parse()
 
@@ -48,6 +54,15 @@ func main() {
 	}
 
 	if *serve != "" {
+		oauth := web.OAuthConfig{
+			ClientID:     cmp.Or(*oauthID, os.Getenv("GHGLANCE_OAUTH_CLIENT_ID")),
+			ClientSecret: cmp.Or(*oauthSecret, os.Getenv("GHGLANCE_OAUTH_CLIENT_SECRET")),
+			PublicURL:    cmp.Or(*publicURL, os.Getenv("GHGLANCE_PUBLIC_URL")),
+		}
+		if missing := missingOAuthSettings(oauth); len(missing) > 0 {
+			fmt.Fprintf(os.Stderr, "error: -serve requires sign in with GitHub; set %s\n", strings.Join(missing, ", "))
+			os.Exit(2)
+		}
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
 		err := web.Run(ctx, web.Config{
@@ -57,7 +72,7 @@ func main() {
 			Retention:  *retention,
 			Workers:    *workers,
 			JobTimeout: *timeout,
-			Token:      *token,
+			OAuth:      oauth,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -133,6 +148,22 @@ func main() {
 		}
 		fmt.Printf("wrote %s/%s/\n", *out, t.ID)
 	}
+}
+
+// missingOAuthSettings names each empty sign-in setting as its flag and
+// environment variable.
+func missingOAuthSettings(c web.OAuthConfig) []string {
+	var missing []string
+	if c.ClientID == "" {
+		missing = append(missing, "-oauth-client-id (GHGLANCE_OAUTH_CLIENT_ID)")
+	}
+	if c.ClientSecret == "" {
+		missing = append(missing, "-oauth-client-secret (GHGLANCE_OAUTH_CLIENT_SECRET)")
+	}
+	if c.PublicURL == "" {
+		missing = append(missing, "-public-url (GHGLANCE_PUBLIC_URL)")
+	}
+	return missing
 }
 
 func resolveThemes(spec string) ([]theme.Theme, error) {

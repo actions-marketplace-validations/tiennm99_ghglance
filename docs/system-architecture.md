@@ -152,13 +152,18 @@ Light themes (`default`, `github`, `nord_bright`, etc.) use `StrokeOpacity: 1` w
 CLI path.
 
 ```
-POST /generate ─► validate ─► rate limit / cooldown ─► Queue (dedup per user)
-                                                          │  -workers goroutines
-                                                          ▼
-                              github.Collect ─► Store.Publish (every theme)
-                                                          │
-GET /u/{user} ◄── meta.json + card list ◄─────────────────┘
+POST /auth/start ─► validate ─► rate limit ─► pending sign-in (state, PKCE verifier; memory, 10 min)
+                 ─► 302 github.com/login/oauth/authorize (scope from ticks, state, S256 challenge)
+GET /auth/callback ─► state == cookie, single use ─► POST /login/oauth/access_token
+                   ─► narrow options to granted scopes (wider than ticked: revoke, refuse)
+                   ─► Queue (dedup per user) ─► -workers goroutines
+                                                   │  token owner check, cooldown
+                                                   ▼
+                       github.Collect ─► Store.Publish (every theme)
+                                                   │
+GET /u/{user} ◄── meta.json + card list ◄──────────┘
 GET /u/{user}/{theme}/{card}.svg ◄── os.Root read
+job ends ─► DELETE api.github.com/applications/{client_id}/token
 ```
 
 - **Storage.** `<data>/<user>` (lowercased login) is a symlink into
@@ -176,24 +181,42 @@ GET /u/{user}/{theme}/{card}.svg ◄── os.Root read
   `-workers` concurrent, `-timeout` each, capacity 64. `SIGTERM` stops the
   HTTP server, cancels running jobs and drops queued ones; nothing is
   published mid-render.
-- **Tokens.** GitHub folds every private contribution a token can see into
-  totals and calendars, so repo filters alone cannot keep cards public. Each
-  job first identifies its token (`viewer` query: login, a one-repo
-  `privacy: PRIVATE` probe, and a classic token's `X-OAuth-Scopes`).
-  Token-less jobs use the server's `GITHUB_TOKEN` (identified once and
-  cached) with private and org-repo scope forced off; they are refused when
-  that token can read private repos, and for the token owner's own login. A
-  submitter's token keeps its scope and skips the cooldown only for its own
-  login; for anyone else it is refused if private-capable, otherwise forced
-  to public scope under the cooldown. It lives only on the job and is
-  cleared when it ends.
+- **Tokens.** The server has no GitHub token of its own: every job runs on
+  the token of the visitor's sign-in. GitHub folds every private
+  contribution a token can see into totals and calendars, so repo filters
+  alone cannot keep cards public. Each job first identifies its token
+  (`viewer` query: login, a one-repo `privacy: PRIVATE` probe, and a
+  classic token's `X-OAuth-Scopes`). Signed in as the target login, the job
+  keeps the ticked scope and skips the cooldown; as anyone else it is
+  refused if private-capable, otherwise forced to public scope under the
+  cooldown. The token lives only on the job and is cleared when it ends.
+- **Sign in with GitHub** (`internal/web/oauth.go`). OAuth App web flow,
+  required: `-serve` exits at startup unless `-oauth-client-id`,
+  `-oauth-client-secret` and `-public-url` are all set. Scopes come from
+  the ticked options (`read:user`; `repo` for private; `read:org` on top
+  for org repos). `/auth/start` parks the validated submission under a
+  256-bit random `state` (10-minute TTL, 1,000 entries max) and binds it to
+  the browser with an `HttpOnly`, `SameSite=Lax` cookie on `/`, named
+  `__Host-ghglance_oauth` and `Secure` when the public URL is https so a
+  sibling subdomain cannot plant it (plain `ghglance_oauth` over http, a
+  weaker binding). The callback compares state and cookie in constant time,
+  consumes the entry, exchanges the code with the PKCE verifier (15 s
+  timeout), drops options whose scope GitHub did not grant, revokes and
+  refuses a token carrying scopes the ticks did not ask for (GitHub folds
+  earlier grants into new tokens), and hands the token to the queue. The
+  worker revokes it before it reports the job finished; `Stop` revokes the
+  tokens of queued jobs it drops, and a callback whose job is not queued
+  revokes at once. Revocation is best effort and logs only the status.
+  GitHub endpoints come from `OAuthConfig.WebURL`/`APIURL`, so tests run
+  against `httptest`. The page CSP adds GitHub's origin to `form-action`,
+  since browsers check a form submission's redirect against it.
 - **Partial fetches.** The web path runs `github.Collect` with `Strict`, so
   a failed all-time or commit-history stage fails the job, and a job whose
   deadline passed is failed even if the fetch returned. The CLI keeps
   rendering partial data with warnings.
 - **HTTP hardening.** Strict CSP on pages, `default-src 'none'` + `sandbox`
   on SVGs, `nosniff`, 16 KiB form limit, `http.CrossOriginProtection` on the
-  POST, per-client token bucket (burst 5, +1 per 2 min) keyed by IPv4
+  POSTs, per-client token bucket (burst 5, +1 per 2 min) keyed by IPv4
   address or IPv6 /64, capped at 10,000 tracked clients.
 
 ## Extension points

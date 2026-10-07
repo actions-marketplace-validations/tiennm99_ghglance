@@ -1,5 +1,5 @@
 {{define "form"}}
-<form class="gen" method="post" action="/generate">
+<form class="gen" method="post" action="/auth/start">
   <div class="field">
     <label for="user">GitHub username</label>
     <input id="user" name="user" type="text" required maxlength="39"
@@ -35,36 +35,29 @@
         <label for="commits_per_repo">Commits sampled per repo</label>
         <input id="commits_per_repo" name="commits_per_repo" type="number" min="0" max="5000" step="1"
           value="{{.Form.CommitsPerRepo}}" aria-describedby="cpr-hint">
-        <p class="hint" id="cpr-hint">0 samples every commit and needs your own token.</p>
+        <p class="hint" id="cpr-hint">0 samples every commit.</p>
       </div>
 
       <fieldset class="checks">
         <legend>Repositories</legend>
         <label><input type="checkbox" name="include_forks" value="1"{{if .Form.IncludeForks}} checked{{end}}> Include forks</label>
-        <label><input type="checkbox" name="include_private" value="1" data-needs-token{{if .Form.IncludePrivate}} checked{{end}}> Include private repos</label>
-        <label><input type="checkbox" name="include_org_repos" value="1" data-needs-token{{if .Form.IncludeOrgRepos}} checked{{end}}> Include org repos you administer</label>
-        <p class="hint">Private and org repos are only counted with your own token.</p>
+        <label><input type="checkbox" name="include_private" value="1"{{if .Form.IncludePrivate}} checked{{end}}> Include private repos</label>
+        <label><input type="checkbox" name="include_org_repos" value="1"{{if .Form.IncludeOrgRepos}} checked{{end}}> Include org repos you administer</label>
+        <p class="hint">Private and org repos are only counted when you sign in as the username's own account.
+          <strong>The resulting cards are public on this site</strong>, including totals drawn from private repos.</p>
       </fieldset>
-
-      <div class="field field-wide">
-        <label for="token">Your GitHub token <span class="optional">(optional)</span></label>
-        <input id="token" name="token" type="password" autocomplete="off" spellcheck="false"
-          maxlength="255" aria-describedby="token-hint">
-        <p class="token-create">
-          <a class="button" href="https://github.com/settings/tokens/new?scopes=repo,read:user&amp;description=ghglance"
-            target="_blank" rel="noopener noreferrer">Create a token on GitHub</a>
-          <span class="hint">Opens a classic token with the <code>repo</code> and <code>read:user</code> scopes already ticked. Pick a short expiration, generate it, and paste it here.</span>
-        </p>
-        <p class="hint" id="token-hint">
-          Used only for this one generation, then dropped: never stored, never logged.
-          With a token for your own account, private repos count unless you untick them, and the regenerate cooldown is skipped.
-          A token for another account renders public data only.
-          <strong>The resulting cards are public on this site</strong>, including totals drawn from private repos.
-        </p>
-      </div>
     </div>
   </details>
 
-  <button type="submit" class="primary">{{if .Meta}}Regenerate cards{{else}}Generate cards{{end}}</button>
+  <div class="signin">
+    <button type="submit" class="primary" aria-describedby="oauth-scopes">Sign in with GitHub &amp; {{if .Meta}}regenerate{{else}}generate{{end}}</button>
+    <p class="hint" id="oauth-scopes" data-oauth-scopes aria-live="polite">
+      GitHub asks for <code>read:user</code>, plus <code>repo</code> when private repos are ticked
+      (GitHub has no read-only private scope) and <code>read:org</code> when org repos are ticked too.
+      The token is used for this one generation, then revoked: never stored, never logged.
+    </p>
+    <p class="hint">Tick private repos only when the username is your own GitHub account: a sign-in with private access as another account is refused.
+      Signed in as another account, you get public data only.</p>
+  </div>
 </form>
 {{end}}

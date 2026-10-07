@@ -99,4 +99,3 @@ func ownedNonForkRepos(repos []github.RepoInfo) []github.RepoInfo {
 	}
 	return out
 }
-

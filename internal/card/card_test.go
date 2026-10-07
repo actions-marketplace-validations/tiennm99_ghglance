@@ -18,13 +18,13 @@ func TestRenderAll(t *testing.T) {
 	// XML-significant chars here exercises escapeXML through the real
 	// rendering pipeline, not just through the unit test below.
 	p := &github.Profile{
-		Login:       "tiennm99",
-		Name:        `Alice & <bob> "quoted"`,
-		Company:     "VNG & <Corp>",
-		Followers:   12,
-		Following:   7,
-		RepoCount: 42,
-		TotalStars:  1234,
+		Login:      "tiennm99",
+		Name:       `Alice & <bob> "quoted"`,
+		Company:    "VNG & <Corp>",
+		Followers:  12,
+		Following:  7,
+		RepoCount:  42,
+		TotalStars: 1234,
 		ReposByLanguage: []github.LangStat{
 			{Name: "Go", Color: "#00ADD8", Value: 5},
 			{Name: "TypeScript", Color: "#3178c6", Value: 3},
@@ -202,12 +202,12 @@ func TestFitTitleFontSize(t *testing.T) {
 		{"Stats", 15},
 		{"Streak", 15},
 		{"Top Starred Repos", 15},
-		{"Most Commit Language (all time)", 15},             // 31 chars
+		{"Most Commit Language (all time)", 15}, // 31 chars
 		{"Contributions by Year", 15},
 		{"Commits by Hour (last year, UTC+7)", 15},    // 34 chars, common integer-zone case
 		{"Commits by Hour (last year, UTC+5:45)", 14}, // 37 chars, quarter-hour zone (Kathmandu)
-		{"Commits by Weekday (last year)", 15},         // 30 chars — weekday titles never include UTC
-		{strings.Repeat("x", 200), 11},                       // pathological
+		{"Commits by Weekday (last year)", 15},        // 30 chars — weekday titles never include UTC
+		{strings.Repeat("x", 200), 11},                // pathological
 	}
 	for _, c := range cases {
 		got := fitTitleFontSize(c.title, width)
@@ -367,9 +367,9 @@ func runeLen(s string) int {
 // calendar. Kept alongside the stress test so updates stay colocated.
 func adversarialProfile() *github.Profile {
 	p := &github.Profile{
-		Login:                      "user-with-a-very-long-login-name",
-		Name:                       "A Very Long Display Name That Keeps Going",
-		UTCOffsetLabel:             "UTC+12:45", // quarter-hour zone — longest realistic UTC label
+		Login:          "user-with-a-very-long-login-name",
+		Name:           "A Very Long Display Name That Keeps Going",
+		UTCOffsetLabel: "UTC+12:45", // quarter-hour zone — longest realistic UTC label
 
 		Company:                    "A-Company-With-An-Unusually-Long-Name Pty Ltd",
 		Location:                   "A Place With A Name That Is Way Too Long To Fit",

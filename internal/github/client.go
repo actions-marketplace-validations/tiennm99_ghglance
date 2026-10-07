@@ -58,15 +58,21 @@ const maxRateLimitSleep = 5 * time.Minute
 // caller's overall budget expires. On a primary-rate-limit 403, honors
 // Retry-After / X-RateLimit-Reset once before retrying.
 func (c *Client) query(ctx context.Context, q string, vars map[string]any, out any) error {
+	_, err := c.queryHeader(ctx, q, vars, out)
+	return err
+}
+
+// queryHeader is query that also returns the successful response's headers.
+func (c *Client) queryHeader(ctx context.Context, q string, vars map[string]any, out any) (http.Header, error) {
 	body, err := json.Marshal(gqlRequest{Query: q, Variables: vars})
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
 	for attempt := 0; attempt < 2; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 		if err != nil {
-			return fmt.Errorf("new request: %w", err)
+			return nil, fmt.Errorf("new request: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("User-Agent", "ghglance")
@@ -76,51 +82,51 @@ func (c *Client) query(ctx context.Context, q string, vars map[string]any, out a
 
 		resp, err := c.http.Do(req)
 		if err != nil {
-			return fmt.Errorf("http: %w", err)
+			return nil, fmt.Errorf("http: %w", err)
 		}
 
 		raw, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err != nil {
-			return fmt.Errorf("read body: %w", err)
+			return nil, fmt.Errorf("read body: %w", err)
 		}
 
 		if rateLimited(resp) && attempt == 0 {
 			wait := rateLimitWait(resp)
 			if wait > maxRateLimitSleep {
-				return fmt.Errorf("http %d: rate limit resets in %s (>%s max wait)", resp.StatusCode, wait, maxRateLimitSleep)
+				return nil, fmt.Errorf("http %d: rate limit resets in %s (>%s max wait)", resp.StatusCode, wait, maxRateLimitSleep)
 			}
 			fmt.Fprintf(os.Stderr, "warn: rate-limited, sleeping %s before retry\n", wait.Round(time.Second))
 			select {
 			case <-time.After(wait):
 			case <-ctx.Done():
-				return ctx.Err()
+				return nil, ctx.Err()
 			}
 			continue
 		}
 		if resp.StatusCode >= 400 {
-			return fmt.Errorf("http %d: %s", resp.StatusCode, truncate(raw, 500))
+			return nil, fmt.Errorf("http %d: %s", resp.StatusCode, truncate(raw, 500))
 		}
 
 		var r gqlResponse
 		if err := json.Unmarshal(raw, &r); err != nil {
-			return fmt.Errorf("decode body: %w", err)
+			return nil, fmt.Errorf("decode body: %w", err)
 		}
 		if len(r.Errors) > 0 {
 			msgs := make([]string, 0, len(r.Errors))
 			for _, e := range r.Errors {
 				msgs = append(msgs, e.Message)
 			}
-			return fmt.Errorf("graphql: %s", strings.Join(msgs, "; "))
+			return nil, fmt.Errorf("graphql: %s", strings.Join(msgs, "; "))
 		}
 		if out != nil {
 			if err := json.Unmarshal(r.Data, out); err != nil {
-				return fmt.Errorf("decode data: %w", err)
+				return nil, fmt.Errorf("decode data: %w", err)
 			}
 		}
-		return nil
+		return resp.Header, nil
 	}
-	return fmt.Errorf("http: exceeded retry attempts")
+	return nil, fmt.Errorf("http: exceeded retry attempts")
 }
 
 // rateLimited returns true when the response indicates a GitHub primary or
@@ -176,4 +182,3 @@ func truncate(b []byte, n int) string {
 	}
 	return string(b[:cut]) + "…"
 }
-

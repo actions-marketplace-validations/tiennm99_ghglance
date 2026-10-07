@@ -8,7 +8,8 @@
 
 `ghglance` is a single-binary CLI (and a GitHub Action wrapping it) that fetches
 data for a GitHub user and writes a themed set of SVGs you can embed in your
-profile README.
+profile README. The same binary can also [run as a web UI](#run-the-web-ui)
+where anyone submits a username and gets the cards back.
 
 Marketplace listing: **[ghglance](https://github.com/marketplace/actions/ghglance)** · Source: [`tiennm99/ghglance`](https://github.com/tiennm99/ghglance)
 
@@ -172,7 +173,104 @@ ghglance -user tiennm99 -themes dracula -include-org-repos -out output
 | `-include-forks`    | `true`          | Include forked repos in the stats                                      |
 | `-include-private`  | `true`          | Include private repos (requires `repo` PAT scope; silently no-op otherwise) |
 | `-include-org-repos`| `false`         | Count org-owned repos you administer toward stars, repo count, languages, top-starred |
+| `-timeout`          | `30m`           | Overall fetch deadline (per generation job under `-serve`), `0` = no limit |
 | `-list-themes`      |                 | Print available theme ids and exit                                     |
+| `-serve`            |                 | Run the [web UI](#run-the-web-ui) on this address (e.g. `:8080`) instead of generating once |
+| `-data-dir`         | `data`          | Web UI only: directory holding generated cards                         |
+| `-cooldown`         | `6h`            | Web UI only: minimum age of a user's cards before a token-less submission regenerates them |
+| `-retention`        | `24h`           | Web UI only: delete a user's cards this long after they were generated, `0` = keep forever |
+| `-workers`          | `2`             | Web UI only: concurrent generation jobs                                |
+
+The five web UI flags are server-only: the Action (`action.yml`,
+`entrypoint.sh`) does not expose them.
+
+## Run the web UI
+
+`-serve` turns the binary into a small web app: a form takes a GitHub
+username plus options, a background job renders all sixteen cards in every
+theme, and `/u/<username>` shows them again with a theme picker and
+copyable embed URLs. Cards are stored on disk and survive restarts.
+
+```sh
+export GITHUB_TOKEN=ghp_xxx
+ghglance -serve :8080 -data-dir data -retention 24h
+# open http://localhost:8080
+```
+
+| Path | Serves |
+| --- | --- |
+| `/` | The submission form |
+| `/u/<user>` | The user's cards (`?theme=<id>` picks the theme), or job progress while one runs |
+| `/u/<user>/<theme>/<card>.svg` | One card, embeddable in a README |
+| `/u/<user>/status` | Job status as JSON, polled by the progress page |
+| `/healthz` | Liveness probe |
+
+How submissions are handled:
+
+- **Server token.** Submissions without a token use the server's
+  `GITHUB_TOKEN`, with private repos and org repos forced off. That alone
+  does not hide private work: GitHub counts every private contribution a
+  token can see in the totals and the calendar. So the server token must be
+  public-only (a classic PAT with just `read:user`, or a fine-grained token
+  with public repositories only); a token with `repo` scope, or one that can
+  list any private repository, is refused for token-less jobs and logged at
+  startup. The token owner's own username is refused without a token too.
+- **Submitter's token.** An optional token in the form is used for that one
+  job, then dropped: never logged, never written to disk. When it belongs to
+  the username being generated, private repos count by default and the
+  cooldown is skipped. A token that belongs to someone else renders public
+  data only, does not skip the cooldown, and is refused outright if it can
+  read private repositories. The cards it renders are public on the site
+  like any other.
+  A "Create a token on GitHub" button beside the field opens GitHub's
+  new-token page with a classic token's `repo` and `read:user` scopes
+  pre-ticked.
+- **Failures.** A job that fails or times out at any fetch stage publishes
+  nothing, so an earlier complete set stays in place.
+- **Cooldown.** Without a token, cards younger than `-cooldown` are shown
+  instead of regenerated.
+- **Retention.** Cards are deleted `-retention` (default `24h`) after they
+  were generated, checked at startup and hourly. The user's page then
+  offers a fresh generation, and embedded card URLs return 404 until
+  someone regenerates them.
+- **Limits.** One queued or running job per user, `-workers` jobs at once,
+  `-timeout` per job, and five submissions per client followed by one
+  every two minutes. A client is an IPv4 address or an IPv6 /64. Behind a
+  reverse proxy on a private or loopback address, the client address comes
+  from the last `X-Forwarded-For` hop.
+
+Each user takes about 9 MB on disk for an active profile (16 cards × every theme).
+
+### Deploy with Docker Compose or Coolify
+
+[`compose.yml`](./compose.yml) builds the repo's `Dockerfile`, runs
+`ghglance -serve :8080 -data-dir /data`, keeps cards in the `ghglance-data`
+volume, and health-checks `/healthz`. It publishes no host port: Coolify's
+proxy routes the domain it generates for `SERVICE_FQDN_GHGLANCE_8080` to
+port 8080 in the container.
+
+In Coolify:
+
+1. Create a resource from this Git repository with the **Docker Compose**
+   build pack and compose file `/compose.yml`.
+2. Set `GHGLANCE_GITHUB_TOKEN` (see [`.env.example`](./.env.example)) to a
+   public-only token: a classic PAT with only `read:user`, never `repo`.
+   `compose.yml` requires it and passes it to the container as
+   `GITHUB_TOKEN`. The distinct name keeps a `GITHUB_TOKEN` exported in your
+   shell from silently replacing it during `docker compose up`.
+3. Keep the generated domain or set your own on the `ghglance` service, then
+   deploy.
+
+On a plain Docker host, copy `.env.example` to `.env`, fill in the token,
+add a `ports: ["8080:8080"]` entry to the service, and run (`.dockerignore`
+keeps `.env` and `data/` out of the image context):
+
+```sh
+docker compose up -d --build
+```
+
+The Action image is unchanged: `compose.yml` overrides the entrypoint, so
+the Action still runs `entrypoint.sh`.
 
 ## How attribution works
 

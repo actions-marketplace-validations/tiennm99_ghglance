@@ -1,0 +1,21 @@
+# ghglance web UI, built from this repo's Dockerfile.
+services:
+  ghglance:
+    build: .
+    entrypoint: ["ghglance"]
+    command: ["-serve", ":8080", "-data-dir", "/data", "-retention", "24h"]
+    restart: unless-stopped
+    environment:
+      - SERVICE_FQDN_GHGLANCE_8080
+      - GITHUB_TOKEN=${GHGLANCE_GITHUB_TOKEN:?set a public-only GitHub token}
+    volumes:
+      - ghglance-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  ghglance-data:

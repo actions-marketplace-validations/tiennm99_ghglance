@@ -31,6 +31,9 @@ go.work.sum
 # in CI) as the reference render instead of committing a sample here.
 output/
 
+# Cards stored by a local `ghglance -serve` run (default -data-dir).
+data/
+
 # Editor/IDE
 # .idea/
 # .vscode/

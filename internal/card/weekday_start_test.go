@@ -22,8 +22,8 @@ func TestPadToWeekGridRotatesByWeekStart(t *testing.T) {
 		weekStart  time.Weekday
 		wantOffset int
 	}{
-		{"Sunday start", time.Sunday, 4},  // Thu is row 4 of Sun..Sat
-		{"Monday start", time.Monday, 3},  // Thu is row 3 of Mon..Sun
+		{"Sunday start", time.Sunday, 4}, // Thu is row 4 of Sun..Sat
+		{"Monday start", time.Monday, 3}, // Thu is row 3 of Mon..Sun
 		{"Thursday start", time.Thursday, 0},
 		{"Friday start", time.Friday, 6},
 	}

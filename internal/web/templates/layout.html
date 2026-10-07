@@ -1,0 +1,30 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{{.Title}}</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site">
+  <div class="wrap">
+    <a class="brand" href="/">ghglance</a>
+    <span class="tagline">GitHub profile cards</span>
+  </div>
+</header>
+<main id="main" class="wrap">
+{{template "content" .}}
+</main>
+<footer class="site">
+  <div class="wrap">
+    Rendered by <a href="https://github.com/tiennm99/ghglance">ghglance</a>. Every card on this site is public.
+  </div>
+</footer>
+</body>
+</html>
+{{end}}

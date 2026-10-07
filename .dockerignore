@@ -1,0 +1,12 @@
+# The image needs only go.mod, main.go, internal/ and entrypoint.sh. Keep
+# secrets and local output out of the Docker context and its cached layers.
+.env
+*.env
+data/
+output/
+.git
+.github
+.claude
+plans/
+demo/
+docs/

@@ -128,3 +128,15 @@ query($login: String!, $from: DateTime!, $to: DateTime!) {
     }
   }
 }`
+
+// viewerQuery names the account behind the token and probes whether the
+// token can read any private repository, so the web server can refuse to
+// publish data a token sees beyond the public view.
+const viewerQuery = `query {
+  viewer {
+    login
+    repositories(privacy: PRIVATE, ownerAffiliations: [OWNER, COLLABORATOR, ORGANIZATION_MEMBER], first: 1) {
+      totalCount
+    }
+  }
+}`

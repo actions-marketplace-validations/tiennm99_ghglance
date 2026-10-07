@@ -22,14 +22,14 @@ type Profile struct {
 	RepoCount int
 
 	// Totals for the stats card.
-	TotalStars          int
-	TotalForks          int
-	TotalCommits        int // last year, from contributionsCollection
-	TotalCommitsAllTime int // sum across contributionYears
-	TotalPRs            int
-	TotalIssues         int
-	TotalReviews        int
-	TotalContributedTo  int
+	TotalStars                 int
+	TotalForks                 int
+	TotalCommits               int // last year, from contributionsCollection
+	TotalCommitsAllTime        int // sum across contributionYears
+	TotalPRs                   int
+	TotalIssues                int
+	TotalReviews               int
+	TotalContributedTo         int
 	TotalContributionsLastYear int // contributionCalendar.totalContributions + restrictedContributionsCount (last year)
 
 	// Count of owned repos grouped by primary language, sorted desc by Value.

@@ -1,0 +1,13 @@
+{{define "content"}}
+<section class="hero">
+  <h1>Profile cards for any GitHub user</h1>
+  <p class="lead">
+    Enter a username and ghglance renders sixteen SVG cards (languages, streaks,
+    productive hours, contribution heatmaps and more) in every theme. They stay
+    here, ready to embed, at <code>/u/&lt;username&gt;</code>.
+  </p>
+  {{if .Error}}<p class="alert alert-error" role="alert">{{.Error}}</p>{{end}}
+  {{if .Message}}<p class="alert alert-info" role="status">{{.Message}}</p>{{end}}
+  {{template "form" .}}
+</section>
+{{end}}

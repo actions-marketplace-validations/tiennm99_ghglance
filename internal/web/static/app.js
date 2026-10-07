@@ -1,0 +1,151 @@
+// ghglance web UI enhancements. Every page works without JavaScript; this
+// adds browser-timezone detection, token-aware checkboxes, copy buttons and
+// job-status polling.
+'use strict';
+
+/**
+ * Fills a timezone field still at its default with the browser's zone.
+ * @param {HTMLInputElement} input
+ */
+function detectTimezone(input) {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (tz && (input.value === '' || input.value === 'UTC')) input.value = tz;
+  } catch (_) {
+    // Older browsers without Intl time zones keep the server default.
+  }
+}
+
+/**
+ * Enables the private/org checkboxes only while a token is entered, and
+ * ticks private repos the first time a token appears.
+ * @param {HTMLFormElement} form
+ */
+function wireTokenScope(form) {
+  const token = /** @type {HTMLInputElement|null} */ (form.querySelector('input[name="token"]'));
+  if (!token) return;
+  const scoped = /** @type {NodeListOf<HTMLInputElement>} */ (form.querySelectorAll('input[data-needs-token]'));
+  let hadToken = false;
+  const sync = () => {
+    const hasToken = token.value.trim() !== '';
+    scoped.forEach((box) => {
+      box.disabled = !hasToken;
+      if (hasToken && !hadToken && box.name === 'include_private') box.checked = true;
+    });
+    hadToken = hasToken;
+  };
+  token.addEventListener('input', sync);
+  sync();
+}
+
+/**
+ * Copies text to the clipboard, falling back to a selection copy.
+ * @param {string} text
+ * @returns {Promise<void>}
+ */
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  try {
+    document.execCommand('copy');
+  } finally {
+    area.remove();
+  }
+  return Promise.resolve();
+}
+
+/**
+ * Wires a copy button; data-copy holds the text, data-copy-target names an
+ * element whose value is copied.
+ * @param {HTMLButtonElement} button
+ */
+function wireCopy(button) {
+  const label = button.textContent;
+  button.addEventListener('click', () => {
+    let text = button.dataset.copy || '';
+    if (button.dataset.copyTarget) {
+      const el = /** @type {HTMLTextAreaElement|null} */ (document.getElementById(button.dataset.copyTarget));
+      text = el ? el.value : '';
+    }
+    copyText(text).then(
+      () => { button.textContent = 'Copied'; },
+      () => { button.textContent = 'Copy failed'; },
+    ).finally(() => {
+      setTimeout(() => { button.textContent = label; }, 1500);
+    });
+  });
+}
+
+/**
+ * Formats seconds as "1m 05s" for the progress line.
+ * @param {number} secs
+ * @returns {string}
+ */
+function formatElapsed(secs) {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return m > 0 ? `${m}m ${String(s).padStart(2, '0')}s` : `${s}s`;
+}
+
+/**
+ * Polls the job-status endpoint and reloads once the job leaves the queue,
+ * so the server renders either the finished cards or the failure. The
+ * announced line (a live region) changes only with the state or stage; the
+ * ticking elapsed time sits outside it so screen readers are not re-read
+ * the line every poll.
+ * @param {HTMLElement} box
+ */
+function pollStatus(box) {
+  const url = box.dataset.statusUrl;
+  const text = document.getElementById('progress-text');
+  const clock = document.getElementById('progress-elapsed');
+  if (!url || !text) return;
+  let delay = 3000;
+  const tick = () => {
+    fetch(url, { cache: 'no-store', headers: { Accept: 'application/json' } })
+      .then((res) => {
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        return res.json();
+      })
+      .then((/** @type {{state: string, stage?: string, position?: number, elapsed_seconds?: number}} */ st) => {
+        if (st.state !== 'queued' && st.state !== 'running') {
+          // Drop one-off notices such as ?notice=pending, which no longer
+          // describe the page once the job is over.
+          const next = new URL(window.location.href);
+          next.searchParams.delete('notice');
+          window.location.replace(next.toString());
+          return;
+        }
+        const line = st.state === 'queued'
+          ? `Queued${st.position ? `, position ${st.position}` : ''}`
+          : `Running: ${st.stage || 'working'}`;
+        if (text.textContent !== line) text.textContent = line;
+        if (clock) clock.textContent = st.elapsed_seconds ? `Elapsed ${formatElapsed(st.elapsed_seconds)}` : '';
+        delay = 3000;
+        setTimeout(tick, delay);
+      })
+      .catch(() => {
+        delay = Math.min(delay * 2, 30000);
+        setTimeout(tick, delay);
+      });
+  };
+  setTimeout(tick, delay);
+}
+
+document.documentElement.classList.add('js');
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('input[data-autotz]').forEach((el) => detectTimezone(/** @type {HTMLInputElement} */ (el)));
+  document.querySelectorAll('form.gen').forEach((el) => wireTokenScope(/** @type {HTMLFormElement} */ (el)));
+  document.querySelectorAll('button[data-copy], button[data-copy-target]').forEach((el) => wireCopy(/** @type {HTMLButtonElement} */ (el)));
+  const progress = document.getElementById('progress');
+  if (progress) pollStatus(progress);
+});

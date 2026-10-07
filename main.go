@@ -14,6 +14,7 @@ import (
 	"github.com/tiennm99/ghglance/internal/card"
 	"github.com/tiennm99/ghglance/internal/github"
 	"github.com/tiennm99/ghglance/internal/theme"
+	"github.com/tiennm99/ghglance/internal/web"
 )
 
 func main() {
@@ -28,15 +29,39 @@ func main() {
 		includeForks   = flag.Bool("include-forks", true, "include forked repos in stats and commit probing")
 		includePrivate = flag.Bool("include-private", true, "include private repos (requires PAT with repo scope; silently no-op otherwise)")
 		includeOrgs    = flag.Bool("include-org-repos", false, "count org-owned repos you administer toward stars, repo count, repos-per-language and top-starred")
-		timeout        = flag.Duration("timeout", 30*time.Minute, "overall deadline for fetch phase (0 = no limit)")
+		timeout        = flag.Duration("timeout", 30*time.Minute, "overall deadline for fetch phase; per generation job under -serve (0 = no limit)")
 		startOfWeek    = flag.String("start-of-week", "sunday", "first day of week for heatmap rows and weekday bars (sunday|monday|tuesday|…)")
 		listThemes     = flag.Bool("list-themes", false, "print available theme ids and exit")
+		serve          = flag.String("serve", "", "run the web UI on this address (e.g. :8080) instead of generating once")
+		dataDir        = flag.String("data-dir", "data", "web UI: directory holding generated cards")
+		cooldown       = flag.Duration("cooldown", 6*time.Hour, "web UI: minimum age of a user's cards before they can be regenerated without the submitter's own token")
+		retention      = flag.Duration("retention", 24*time.Hour, "web UI: delete a user's generated cards this long after they were generated (0 = keep forever)")
+		workers        = flag.Int("workers", 2, "web UI: concurrent generation jobs")
 	)
 	flag.Parse()
 
 	if *listThemes {
 		for _, id := range theme.IDs() {
 			fmt.Println(id)
+		}
+		return
+	}
+
+	if *serve != "" {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		err := web.Run(ctx, web.Config{
+			Addr:       *serve,
+			DataDir:    *dataDir,
+			Cooldown:   *cooldown,
+			Retention:  *retention,
+			Workers:    *workers,
+			JobTimeout: *timeout,
+			Token:      *token,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
 		}
 		return
 	}
@@ -59,7 +84,7 @@ func main() {
 		loc = time.UTC
 	}
 
-	weekStart, err := parseWeekday(*startOfWeek)
+	weekStart, err := github.ParseWeekday(*startOfWeek)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warn: %v, falling back to Sunday\n", err)
 		weekStart = time.Sunday
@@ -86,32 +111,19 @@ func main() {
 		cancel()
 	}()
 
-	client := github.NewClient(*token)
-	profile, err := client.FetchProfile(ctx, *user, opts)
+	profile, err := github.Collect(ctx, github.NewClient(*token), *user, github.CollectConfig{
+		Options:        opts,
+		Location:       loc,
+		WeekStart:      weekStart,
+		TopRepos:       *topRepos,
+		CommitsPerRepo: *perRepo,
+		Warnf: func(format string, args ...any) {
+			fmt.Fprintf(os.Stderr, "warn: "+format+"\n", args...)
+		},
+	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: fetch profile: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
-	}
-	profile.UTCOffsetLabel = utcOffsetLabel(loc)
-	profile.WeekStart = weekStart
-
-	// Year-loop fetch populates SeedRepos from commitContributionsByRepository
-	// plus the all-time contribution calendar; must precede FetchProductive so
-	// commit-history probes land on repos where the user actually committed.
-	if len(profile.ContributionYears) > 0 {
-		if err := client.FetchContributionsAllTime(ctx, profile, opts); err != nil {
-			fmt.Fprintf(os.Stderr, "warn: all-time contributions fetch: %v\n", err)
-		}
-	}
-
-	if profile.ID != "" && len(profile.SeedRepos) > 0 {
-		repos := profile.SeedRepos
-		if *topRepos > 0 && len(repos) > *topRepos {
-			repos = repos[:*topRepos]
-		}
-		if err := client.FetchProductive(ctx, profile, repos, loc, *perRepo); err != nil {
-			fmt.Fprintf(os.Stderr, "warn: productive-time + commits-per-language fetch: %v\n", err)
-		}
 	}
 
 	for _, t := range selected {
@@ -120,52 +132,6 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("wrote %s/%s/\n", *out, t.ID)
-	}
-}
-
-// utcOffsetLabel formats the location's current offset from UTC compactly:
-//
-//	integer hours  → "UTC+7"    (no ".00" padding — 3 chars shorter than
-//	                             the old "UTC+7.00" format, keeps the
-//	                             productive-time title at 15 px)
-//	half-hour zone → "UTC+5:30" (India)
-//	quarter-hour   → "UTC+5:45" (Nepal)
-//	negative zone  → "UTC-3"    / "UTC-3:30"
-func utcOffsetLabel(loc *time.Location) string {
-	_, offsetSec := time.Now().In(loc).Zone()
-	sign := "+"
-	if offsetSec < 0 {
-		sign = "-"
-		offsetSec = -offsetSec
-	}
-	hours := offsetSec / 3600
-	minutes := (offsetSec % 3600) / 60
-	if minutes == 0 {
-		return fmt.Sprintf("UTC%s%d", sign, hours)
-	}
-	return fmt.Sprintf("UTC%s%d:%02d", sign, hours, minutes)
-}
-
-// parseWeekday maps a case-insensitive English weekday name (full or 3-letter)
-// to time.Weekday. Empty input → Sunday so a blank action input still works.
-func parseWeekday(s string) (time.Weekday, error) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "", "sun", "sunday":
-		return time.Sunday, nil
-	case "mon", "monday":
-		return time.Monday, nil
-	case "tue", "tuesday":
-		return time.Tuesday, nil
-	case "wed", "wednesday":
-		return time.Wednesday, nil
-	case "thu", "thursday":
-		return time.Thursday, nil
-	case "fri", "friday":
-		return time.Friday, nil
-	case "sat", "saturday":
-		return time.Saturday, nil
-	default:
-		return time.Sunday, fmt.Errorf("unknown start-of-week %q", s)
 	}
 }
 

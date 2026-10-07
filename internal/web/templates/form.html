@@ -1,0 +1,70 @@
+{{define "form"}}
+<form class="gen" method="post" action="/generate">
+  <div class="field">
+    <label for="user">GitHub username</label>
+    <input id="user" name="user" type="text" required maxlength="39"
+      pattern="[A-Za-z0-9]+(-[A-Za-z0-9]+)*" title="Letters, digits and single hyphens"
+      autocomplete="off" autocapitalize="none" spellcheck="false"
+      placeholder="octocat" value="{{.Form.User}}">
+  </div>
+
+  <details class="options">
+    <summary>Options</summary>
+    <div class="options-grid">
+      <div class="field">
+        <label for="tz">Timezone</label>
+        <input id="tz" name="tz" type="text" maxlength="64" value="{{.Form.TZ}}"
+          {{if not .Meta}}data-autotz{{end}} aria-describedby="tz-hint" spellcheck="false">
+        <p class="hint" id="tz-hint">IANA name such as Asia/Saigon. Buckets commit hours on the productive-time cards.</p>
+      </div>
+
+      <div class="field">
+        <label for="start_of_week">Week starts on</label>
+        <select id="start_of_week" name="start_of_week">
+          <option value="sunday"{{if eq .Form.StartOfWeek "sunday"}} selected{{end}}>Sunday</option>
+          <option value="monday"{{if eq .Form.StartOfWeek "monday"}} selected{{end}}>Monday</option>
+          <option value="tuesday"{{if eq .Form.StartOfWeek "tuesday"}} selected{{end}}>Tuesday</option>
+          <option value="wednesday"{{if eq .Form.StartOfWeek "wednesday"}} selected{{end}}>Wednesday</option>
+          <option value="thursday"{{if eq .Form.StartOfWeek "thursday"}} selected{{end}}>Thursday</option>
+          <option value="friday"{{if eq .Form.StartOfWeek "friday"}} selected{{end}}>Friday</option>
+          <option value="saturday"{{if eq .Form.StartOfWeek "saturday"}} selected{{end}}>Saturday</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="commits_per_repo">Commits sampled per repo</label>
+        <input id="commits_per_repo" name="commits_per_repo" type="number" min="0" max="5000" step="1"
+          value="{{.Form.CommitsPerRepo}}" aria-describedby="cpr-hint">
+        <p class="hint" id="cpr-hint">0 samples every commit and needs your own token.</p>
+      </div>
+
+      <fieldset class="checks">
+        <legend>Repositories</legend>
+        <label><input type="checkbox" name="include_forks" value="1"{{if .Form.IncludeForks}} checked{{end}}> Include forks</label>
+        <label><input type="checkbox" name="include_private" value="1" data-needs-token{{if .Form.IncludePrivate}} checked{{end}}> Include private repos</label>
+        <label><input type="checkbox" name="include_org_repos" value="1" data-needs-token{{if .Form.IncludeOrgRepos}} checked{{end}}> Include org repos you administer</label>
+        <p class="hint">Private and org repos are only counted with your own token.</p>
+      </fieldset>
+
+      <div class="field field-wide">
+        <label for="token">Your GitHub token <span class="optional">(optional)</span></label>
+        <input id="token" name="token" type="password" autocomplete="off" spellcheck="false"
+          maxlength="255" aria-describedby="token-hint">
+        <p class="token-create">
+          <a class="button" href="https://github.com/settings/tokens/new?scopes=repo,read:user&amp;description=ghglance"
+            target="_blank" rel="noopener noreferrer">Create a token on GitHub</a>
+          <span class="hint">Opens a classic token with the <code>repo</code> and <code>read:user</code> scopes already ticked. Pick a short expiration, generate it, and paste it here.</span>
+        </p>
+        <p class="hint" id="token-hint">
+          Used only for this one generation, then dropped: never stored, never logged.
+          With a token for your own account, private repos count unless you untick them, and the regenerate cooldown is skipped.
+          A token for another account renders public data only.
+          <strong>The resulting cards are public on this site</strong>, including totals drawn from private repos.
+        </p>
+      </div>
+    </div>
+  </details>
+
+  <button type="submit" class="primary">{{if .Meta}}Regenerate cards{{else}}Generate cards{{end}}</button>
+</form>
+{{end}}

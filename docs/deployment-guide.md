@@ -1,6 +1,7 @@
 # Deployment Guide
 
 Three consumption paths: **GitHub Action**, **prebuilt binaries**, **go install**.
+The same binary also runs as a self-hosted **web UI** (section 4).
 
 ## 1. GitHub Action (recommended for README auto-updates)
 
@@ -96,6 +97,27 @@ go install github.com/tiennm99/ghglance@latest
 ```
 
 Requires Go 1.26+. Puts the binary in `$(go env GOPATH)/bin`.
+
+## 4. Web UI (Docker Compose / Coolify)
+
+`compose.yml` at the repo root builds the `Dockerfile`, overrides its
+entrypoint to run `ghglance -serve :8080 -data-dir /data`, stores cards in
+the `ghglance-data` volume, and health-checks `/healthz` with busybox
+`wget`. It publishes no host port; Coolify routes the domain generated for
+`SERVICE_FQDN_GHGLANCE_8080` to container port 8080.
+
+| Variable | Needed for |
+| --- | --- |
+| `GHGLANCE_TOKEN` | Required by `compose.yml`, which passes it to the container as `GITHUB_TOKEN` for token-less submissions. Must be public-only: a classic PAT with just `read:user`. A token with `repo` scope or any private-repo access is refused for token-less jobs (GitHub would count private contributions in totals and calendars). |
+
+Coolify: create a Docker Compose resource from this repo, compose file
+`/compose.yml`, set `GHGLANCE_TOKEN`, assign the domain, deploy. Server flags
+(`-cooldown`, `-retention`, `-workers`, `-timeout`) are changed by editing `command:` in
+`compose.yml`. Steps for a plain Docker host and the request-handling rules
+are in the README's "Run the web UI" section.
+
+Rollback: redeploy the previous commit. Card sets on the volume are
+format-stable, so no data migration is involved.
 
 ## Docker image
 

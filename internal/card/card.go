@@ -57,3 +57,12 @@ func RenderAll(p *github.Profile, t theme.Theme, outDir string) error {
 	}
 	return nil
 }
+
+// Filenames lists every card's on-disk basename in render order.
+func Filenames() []string {
+	out := make([]string, len(allCards))
+	for i, c := range allCards {
+		out[i] = c.Filename()
+	}
+	return out
+}

@@ -59,12 +59,12 @@ func (streakCard) SVG(p *github.Profile, t theme.Theme) ([]byte, error) {
 
 // streakStats is the post-processed daily series summarised for the card.
 type streakStats struct {
-	Current              int
+	Current                  int
 	CurrentStart, CurrentEnd time.Time
-	Longest              int
+	Longest                  int
 	LongestStart, LongestEnd time.Time
-	Active               int // days with ≥1 contribution
-	Total                int // total days observed
+	Active                   int // days with ≥1 contribution
+	Total                    int // total days observed
 }
 
 // computeStreak walks the daily series once. The "current streak" runs

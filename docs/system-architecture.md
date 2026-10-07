@@ -14,14 +14,18 @@ One process, three phases: **flag parsing → data fetch → SVG render**.
                     api.github.com        internal/theme
 ```
 
-No database, no cache, no background workers. Stateless CLI; Action runtime just sets environment variables + runs the binary.
+No database, no cache, no background workers in CLI mode. Stateless CLI; Action runtime just sets environment variables + runs the binary. `-serve` switches the same binary into the long-running web UI described under [Web UI mode](#web-ui-mode).
 
 A root `context.Context` is built in `main.go` with an overall deadline (`-timeout`, default 30m) and cancelled on `SIGINT`/`SIGTERM`. Every fetcher and HTTP request inherits it so a slow run aborts cleanly instead of draining the 6h Action budget.
 
 ## Data-fetch sequence
 
+`github.Collect` owns this sequence; the CLI and every web UI job call it, so
+the two paths cannot drift. Only the profile fetch is fatal; later stages
+report through `CollectConfig.Warnf` and leave partial data.
+
 ```
-main.go
+github.Collect(ctx, client, login, cfg)
   │
   ▼
 FetchProfile(ctx, login, opts)
@@ -49,7 +53,7 @@ FetchContributionsAllTime(ctx, profile, opts)
   │          TotalCommitsAllTime
   │
   ▼
-FetchProductive(ctx, profile, profile.SeedRepos, loc, commitsPerRepo)  // 0 = no cap
+FetchProductive(ctx, profile, SeedRepos[:cfg.TopRepos], loc, commitsPerRepo)  // 0 = no cap
   │  commitHistoryQuery × (#seeds × pages)
   │  per commit: t = committedDate in loc
   │              ProductiveAllTime[t.Hour]++
@@ -60,7 +64,7 @@ FetchProductive(ctx, profile, profile.SeedRepos, loc, commitsPerRepo)  // 0 = no
   │          CommitsByLanguage, CommitsByLanguageAllTime
   │
   ▼
-card.RenderAll(profile, theme, outDir)  ×  len(themes)
+card.RenderAll(profile, theme, outDir)  ×  len(themes)   // caller's step
 ```
 
 ## GraphQL queries
@@ -141,8 +145,59 @@ Light themes (`default`, `github`, `nord_bright`, etc.) use `StrokeOpacity: 1` w
 | Overall timeout (`-timeout`) or Ctrl-C | `ctx` cancels in-flight requests; partial data may render |
 | User with 0 commits | Card renders "No data available" |
 
+## Web UI mode
+
+`ghglance -serve :8080` runs `internal/web` (stdlib `net/http`,
+`html/template`, `embed`; vanilla JS, no build step) instead of the one-shot
+CLI path.
+
+```
+POST /generate ─► validate ─► rate limit / cooldown ─► Queue (dedup per user)
+                                                          │  -workers goroutines
+                                                          ▼
+                              github.Collect ─► Store.Publish (every theme)
+                                                          │
+GET /u/{user} ◄── meta.json + card list ◄─────────────────┘
+GET /u/{user}/{theme}/{card}.svg ◄── os.Root read
+```
+
+- **Storage.** `<data>/<user>` (lowercased login) is a symlink into
+  `<data>/.gen/<user>-<nanos>/`, which holds `<theme>/<card>.svg` plus
+  `meta.json` (generated time, options, `public`/`private` scope; never the
+  token). Publish renders into a fresh generation directory, then renames a
+  new symlink over the old one, so a reader sees the old set or the new set,
+  never a partial one. Startup sweeps generations no link points at.
+  Sets older than `-retention` (default `24h`) are deleted at startup and
+  hourly; a store mutex keeps that removal from racing a republish.
+- **Path safety.** Logins are checked against GitHub's rule (alphanumerics
+  and single hyphens, 1–39 chars) and themes and card names against the
+  registered lists before any path is built; reads go through `os.Root`.
+- **Jobs.** In-process queue, at most one queued or running job per user,
+  `-workers` concurrent, `-timeout` each, capacity 64. `SIGTERM` stops the
+  HTTP server, cancels running jobs and drops queued ones; nothing is
+  published mid-render.
+- **Tokens.** GitHub folds every private contribution a token can see into
+  totals and calendars, so repo filters alone cannot keep cards public. Each
+  job first identifies its token (`viewer` query: login, a one-repo
+  `privacy: PRIVATE` probe, and a classic token's `X-OAuth-Scopes`).
+  Token-less jobs use the server's `GITHUB_TOKEN` (identified once and
+  cached) with private and org-repo scope forced off; they are refused when
+  that token can read private repos, and for the token owner's own login. A
+  submitter's token keeps its scope and skips the cooldown only for its own
+  login; for anyone else it is refused if private-capable, otherwise forced
+  to public scope under the cooldown. It lives only on the job and is
+  cleared when it ends.
+- **Partial fetches.** The web path runs `github.Collect` with `Strict`, so
+  a failed all-time or commit-history stage fails the job, and a job whose
+  deadline passed is failed even if the fetch returned. The CLI keeps
+  rendering partial data with warnings.
+- **HTTP hardening.** Strict CSP on pages, `default-src 'none'` + `sandbox`
+  on SVGs, `nosniff`, 16 KiB form limit, `http.CrossOriginProtection` on the
+  POST, per-client token bucket (burst 5, +1 per 2 min) keyed by IPv4
+  address or IPv6 /64, capped at 10,000 tracked clients.
+
 ## Extension points
 
 - **New card**: implement `Card` interface, add to `allCards` in `card.go`.
 - **New theme**: add entry to `themes` map in `theme.go`.
-- **New fetcher mode** (e.g., REST per-commit): add a new method on `*Client`, call from `main.go`, wire to new `Profile` fields.
+- **New fetcher mode** (e.g., REST per-commit): add a new method on `*Client`, call from `github.Collect`, wire to new `Profile` fields.

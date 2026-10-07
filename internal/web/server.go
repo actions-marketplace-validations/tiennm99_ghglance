@@ -1,14 +1,18 @@
-// Package web serves the ghglance web UI: a form that signs the visitor in
-// with GitHub and queues card generation for any GitHub user on that
-// sign-in's token, and pages that re-show the stored cards.
+// Package web serves the ghglance web UI: a form that queues card
+// generation for any GitHub user on the visitor's own GitHub access (a
+// "Sign in with GitHub" token or a token they paste), and pages that show
+// the stored cards for quick viewing. Cards are inlined into the page as
+// data: URIs; there is no URL to link to or embed a card.
 package web
 
 import (
 	"context"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -38,11 +42,13 @@ const (
 	// pageCSP takes GitHub's origin as an extra form-action source: the
 	// sign-in form is redirected to GitHub's consent page, and browsers
 	// check redirects of a form submission against form-action too.
-	pageCSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; " +
+	// img-src allows data: for the cards, which the user page inlines; an
+	// SVG loaded through <img> runs no scripts and fetches nothing.
+	pageCSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; " +
 		"connect-src 'self'; form-action 'self' %s; base-uri 'none'; frame-ancestors 'none'"
-	// Cards are static drawings: no scripts, no external fetches. Inline
-	// style attributes are the only thing they need.
-	svgCSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+	// maxCardBytes bounds one stored card read into the user page; real
+	// cards are a few tens of KiB at most.
+	maxCardBytes = 1 << 20
 )
 
 // Config configures the web server.
@@ -58,8 +64,9 @@ type Config struct {
 	JobTimeout time.Duration
 	// Fetcher overrides the GitHub fetch; nil uses the real API.
 	Fetcher Fetcher
-	// OAuth configures "Sign in with GitHub", which every generation runs
-	// through. It is required.
+	// OAuth configures "Sign in with GitHub". It is required; visitors may
+	// paste their own token instead of signing in, but the server never
+	// uses a token of its own.
 	OAuth OAuthConfig
 }
 
@@ -165,7 +172,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /auth/callback", s.handleAuthCallback)
 	mux.HandleFunc("GET /u/{user}", s.handleUser)
 	mux.HandleFunc("GET /u/{user}/status", s.handleStatus)
-	mux.HandleFunc("GET /u/{user}/{theme}/{card}", s.handleCard)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
@@ -215,13 +221,13 @@ type pageData struct {
 	Themes       []string
 	Theme        string
 	Cards        []cardView
-	Markdown     string
 }
 
+// cardView is one card on the user page. Src is a data: URI of the stored
+// SVG, so the page carries the card itself and no card URL.
 type cardView struct {
 	Name string
-	Src  string
-	URL  string
+	Src  template.URL
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -256,7 +262,7 @@ func (s *Server) readSubmission(w http.ResponseWriter, r *http.Request) (submiss
 // enqueue queues sub and redirects to the user's page, adding notice when
 // one is given. It reports whether a new job took the submission's token;
 // when not, the caller still owns it. The cooldown is checked by the job,
-// once it knows whose token it holds: a sign-in as the target account
+// once it knows whose token it holds: a token for the target account
 // skips it.
 func (s *Server) enqueue(w http.ResponseWriter, r *http.Request, sub submission, form formValues, notice string) bool {
 	target := "/u/" + url.PathEscape(userKey(sub.Login))
@@ -336,16 +342,19 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.Retention > 0 {
 			d.ExpiresIn = humanDuration(max(meta.GeneratedAt.Add(s.cfg.Retention).Sub(time.Now()), time.Minute))
 		}
-		base := baseURL(r)
-		version := strconv.FormatInt(meta.GeneratedAt.Unix(), 10)
-		var md strings.Builder
 		for _, f := range card.Filenames() {
-			rel := "/u/" + d.Key + "/" + d.Theme + "/" + f
+			src, err := s.cardDataURI(login, d.Theme, f)
+			if err != nil {
+				// A set expiring or being replaced between the meta read
+				// and this one is not worth logging; it just drops a card.
+				if !isNotExist(err) {
+					log.Printf("read card %s/%s/%s: %v", userKey(login), d.Theme, f, err)
+				}
+				continue
+			}
 			name := strings.ReplaceAll(strings.TrimSuffix(f, ".svg"), "-", " ")
-			d.Cards = append(d.Cards, cardView{Name: name, Src: rel + "?v=" + version, URL: base + rel})
-			fmt.Fprintf(&md, "![%s](%s)\n", name, base+rel)
+			d.Cards = append(d.Cards, cardView{Name: name, Src: src})
 		}
-		d.Markdown = md.String()
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	s.render(w, http.StatusOK, "user", d)
@@ -362,26 +371,31 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(s.queue.Status(login))
 }
 
-func (s *Server) handleCard(w http.ResponseWriter, r *http.Request) {
-	f, err := s.store.OpenCard(r.PathValue("user"), r.PathValue("theme"), r.PathValue("card"))
+// cardDataURI reads one stored card and returns it as a base64 data: URI.
+// The bytes are our own renderer's output and base64 cannot break out of
+// the attribute, so the URI is marked safe for html/template, which would
+// otherwise replace any data: URL.
+func (s *Server) cardDataURI(login, themeID, file string) (template.URL, error) {
+	f, err := s.store.OpenCard(login, themeID, file)
 	if err != nil {
-		if !isNotExist(err) {
-			log.Printf("open card %s: %v", r.URL.Path, err)
-		}
-		http.NotFound(w, r)
-		return
+		return "", err
 	}
 	defer f.Close()
 	st, err := f.Stat()
-	if err != nil || !st.Mode().IsRegular() {
-		http.NotFound(w, r)
-		return
+	if err != nil {
+		return "", err
 	}
-	h := w.Header()
-	h.Set("Content-Type", "image/svg+xml")
-	h.Set("Content-Security-Policy", svgCSP)
-	h.Set("Cache-Control", "public, max-age=3600")
-	http.ServeContent(w, r, "", st.ModTime(), f)
+	if !st.Mode().IsRegular() {
+		return "", fs.ErrNotExist
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, maxCardBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(raw) > maxCardBytes {
+		return "", fmt.Errorf("card larger than %d bytes", maxCardBytes)
+	}
+	return template.URL("data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString(raw)), nil
 }
 
 func (s *Server) render(w http.ResponseWriter, status int, page string, d pageData) {
@@ -429,16 +443,6 @@ func formFromOptions(login string, o Options) formValues {
 		IncludePrivate:  o.IncludePrivate,
 		CommitsPerRepo:  strconv.Itoa(o.CommitsPerRepo),
 	}
-}
-
-// baseURL is the absolute origin for copyable embed links. The scheme
-// follows the proxy's X-Forwarded-Proto when one sits in front.
-func baseURL(r *http.Request) string {
-	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
-	return scheme + "://" + r.Host
 }
 
 func humanDuration(d time.Duration) string {

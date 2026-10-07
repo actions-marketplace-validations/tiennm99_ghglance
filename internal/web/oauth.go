@@ -345,10 +345,19 @@ func pkceChallenge(verifier string) string {
 }
 
 // handleAuthStart validates the generation form, parks it under a random
-// state and sends the browser to GitHub's consent page.
+// state and sends the browser to GitHub's consent page. A pasted token
+// takes precedence over signing in, whichever button sent the form (Enter
+// in the token field presses the first one, the sign-in button): the job
+// is queued on that token straight away, under the same ownership,
+// privacy and cooldown rules, and the token is never revoked.
 func (s *Server) handleAuthStart(w http.ResponseWriter, r *http.Request) {
 	sub, form, ok := s.readSubmission(w, r)
 	if !ok {
+		return
+	}
+	if sub.Pasted {
+		w.Header().Set("Cache-Control", "no-store")
+		s.enqueue(w, r, sub, form, "")
 		return
 	}
 	if s.queue.Status(sub.Login).Active() {

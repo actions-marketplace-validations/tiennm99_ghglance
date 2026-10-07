@@ -149,10 +149,13 @@ Light themes (`default`, `github`, `nord_bright`, etc.) use `StrokeOpacity: 1` w
 
 `ghglance -serve :8080` runs `internal/web` (stdlib `net/http`,
 `html/template`, `embed`; vanilla JS, no build step) instead of the one-shot
-CLI path.
+CLI path. It is for quickly viewing cards, not hosting them: the user page
+inlines each card as a `data:` URI and no route serves a card by URL, so
+cards cannot be linked to or embedded in Markdown.
 
 ```
-POST /auth/start ─► validate ─► rate limit ─► pending sign-in (state, PKCE verifier; memory, 10 min)
+POST /auth/start ─► validate ─► rate limit ─┬─ pasted token ─► Queue (below), never revoked
+                                            └─ pending sign-in (state, PKCE verifier; memory, 10 min)
                  ─► 302 github.com/login/oauth/authorize (scope from ticks, state, S256 challenge)
 GET /auth/callback ─► state == cookie, single use ─► POST /login/oauth/access_token
                    ─► narrow options to granted scopes (wider than ticked: revoke, refuse)
@@ -161,9 +164,8 @@ GET /auth/callback ─► state == cookie, single use ─► POST /login/oauth/a
                                                    ▼
                        github.Collect ─► Store.Publish (every theme)
                                                    │
-GET /u/{user} ◄── meta.json + card list ◄──────────┘
-GET /u/{user}/{theme}/{card}.svg ◄── os.Root read
-job ends ─► DELETE api.github.com/applications/{client_id}/token
+GET /u/{user} ◄── meta.json + os.Root card reads, inlined as data: URIs
+job ends (sign-in token only) ─► DELETE api.github.com/applications/{client_id}/token
 ```
 
 - **Storage.** `<data>/<user>` (lowercased login) is a symlink into
@@ -182,16 +184,23 @@ job ends ─► DELETE api.github.com/applications/{client_id}/token
   HTTP server, cancels running jobs and drops queued ones; nothing is
   published mid-render.
 - **Tokens.** The server has no GitHub token of its own: every job runs on
-  the token of the visitor's sign-in. GitHub folds every private
+  the visitor's token, from their sign-in or pasted into the form's
+  collapsed "Or use your own token" section. A non-empty pasted token
+  (charset-checked like a sign-in token, which rules out header injection)
+  takes precedence in `/auth/start` whichever button sent the form, and is
+  queued straight away instead of starting a sign-in. GitHub folds every private
   contribution a token can see into totals and calendars, so repo filters
   alone cannot keep cards public. Each job first identifies its token
   (`viewer` query: login, a one-repo `privacy: PRIVATE` probe, and a
   classic token's `X-OAuth-Scopes`). Signed in as the target login, the job
   keeps the ticked scope and skips the cooldown; as anyone else it is
   refused if private-capable, otherwise forced to public scope under the
-  cooldown. The token lives only on the job and is cleared when it ends.
+  cooldown. The rules are the same for both kinds of token. The token
+  lives only on the job and is cleared when it ends; it is never logged,
+  written to disk or echoed into the form. Only sign-in tokens are
+  revoked; a pasted token belongs to the visitor.
 - **Sign in with GitHub** (`internal/web/oauth.go`). OAuth App web flow,
-  required: `-serve` exits at startup unless `-oauth-client-id`,
+  configuration required even though visitors may paste a token instead: `-serve` exits at startup unless `-oauth-client-id`,
   `-oauth-client-secret` and `-public-url` are all set. Scopes come from
   the ticked options (`read:user`; `repo` for private; `read:org` on top
   for org repos). `/auth/start` parks the validated submission under a
@@ -214,8 +223,10 @@ job ends ─► DELETE api.github.com/applications/{client_id}/token
   a failed all-time or commit-history stage fails the job, and a job whose
   deadline passed is failed even if the fetch returned. The CLI keeps
   rendering partial data with warnings.
-- **HTTP hardening.** Strict CSP on pages, `default-src 'none'` + `sandbox`
-  on SVGs, `nosniff`, 16 KiB form limit, `http.CrossOriginProtection` on the
+- **HTTP hardening.** Strict CSP on pages, with `img-src 'self' data:` for
+  the inlined cards (an SVG loaded through `<img>` runs no scripts and
+  fetches nothing, and stays isolated from the page and the other cards),
+  `nosniff`, 16 KiB form limit, `http.CrossOriginProtection` on the
   POSTs, per-client token bucket (burst 5, +1 per 2 min) keyed by IPv4
   address or IPv6 /64, capped at 10,000 tracked clients.
 

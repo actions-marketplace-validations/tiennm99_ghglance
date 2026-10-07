@@ -32,8 +32,10 @@ const queueCapacity = 64
 var (
 	errQueueFull = errors.New("the generation queue is full, try again in a few minutes")
 	errStopped   = errors.New("server is shutting down")
-	errNoToken   = errors.New("this generation has no sign-in token; sign in with GitHub again")
+	errNoToken   = errors.New("this generation has no token; sign in with GitHub or paste your own token")
 	errFresh     = errors.New("these cards are recent; you signed in as another account, so it does not skip the wait")
+	// errFreshPasted is errFresh for a pasted token.
+	errFreshPasted = errors.New("these cards are recent; your token belongs to another account, so it does not skip the wait")
 )
 
 // Fetcher runs the GitHub fetch. Tests swap in a fake; the server uses
@@ -53,14 +55,16 @@ func (githubFetcher) TokenInfo(ctx context.Context, token string) (github.TokenI
 	return github.NewClient(token).TokenInfo(ctx)
 }
 
-// job is one queued generation. token is the submitter's sign-in token,
-// held only until the job ends, never logged or persisted, and revoked on
-// GitHub then.
+// job is one queued generation. token is the submitter's token, held only
+// until the job ends and never logged or persisted. A sign-in token is
+// revoked on GitHub then; a pasted one (pasted is true) belongs to the
+// visitor and is only dropped.
 type job struct {
-	key   string
-	login string
-	opts  Options
-	token string
+	key    string
+	login  string
+	opts   Options
+	token  string
+	pasted bool
 
 	state    string
 	stage    string
@@ -89,7 +93,8 @@ type Queue struct {
 	timeout  time.Duration
 	cooldown time.Duration
 	now      func() time.Time
-	// revoke deletes a sign-in token on GitHub once its job is over.
+	// revoke deletes a sign-in token on GitHub once its job is over. It is
+	// never called with a pasted token.
 	revoke func(token string)
 
 	mu      sync.Mutex
@@ -148,6 +153,7 @@ func (q *Queue) Submit(sub submission) (created bool, err error) {
 		login:  sub.Login,
 		opts:   sub.Options,
 		token:  sub.Token,
+		pasted: sub.Pasted,
 		state:  stateQueued,
 		queued: q.now(),
 	}
@@ -182,14 +188,17 @@ func (q *Queue) Status(login string) JobStatus {
 }
 
 // Stop cancels running jobs, drops queued ones and waits for the workers.
-// Tokens of dropped jobs are revoked before it returns; running jobs revoke
-// theirs as their workers wind down.
+// Sign-in tokens of dropped jobs are revoked before it returns; running
+// jobs revoke theirs as their workers wind down. Pasted tokens are only
+// dropped.
 func (q *Queue) Stop() {
 	q.mu.Lock()
 	q.closed = true
 	var dropped []string
 	for _, j := range q.pending {
-		dropped = append(dropped, j.token)
+		if !j.pasted {
+			dropped = append(dropped, j.token)
+		}
 		j.token = ""
 		j.state, j.err = stateFailed, errStopped.Error()
 	}
@@ -242,12 +251,15 @@ func (q *Queue) worker() {
 		err := q.run(j)
 
 		// Revoke before reporting the job over, so a finished job never
-		// leaves a live sign-in token behind.
+		// leaves a live sign-in token behind. A pasted token is the
+		// visitor's to keep or revoke; it is only dropped.
 		q.mu.Lock()
 		token := j.token
 		j.token = ""
 		q.mu.Unlock()
-		q.revokeToken(token)
+		if !j.pasted {
+			q.revokeToken(token)
+		}
 
 		q.mu.Lock()
 		j.finished = q.now()
@@ -289,15 +301,24 @@ func (q *Queue) run(j *job) error {
 	opts := j.opts
 	info, err := q.fetcher.TokenInfo(ctx, token)
 	if err != nil {
+		if j.pasted {
+			return errors.New("GitHub did not accept your token")
+		}
 		return errors.New("GitHub did not accept your sign-in token")
 	}
 	own := strings.EqualFold(info.Login, j.login)
 	if !own {
 		if info.CanReadPrivate {
+			if j.pasted {
+				return fmt.Errorf("your token belongs to %s and can read private repositories, so it can only generate cards for %s", info.Login, info.Login)
+			}
 			return fmt.Errorf("you signed in as %s with access to private repositories, so you can only generate cards for %s", info.Login, info.Login)
 		}
 		opts.IncludePrivate, opts.IncludeOrgRepos = false, false
 		if q.store.cooldownLeft(j.login, q.cooldown, q.now()) > 0 {
+			if j.pasted {
+				return errFreshPasted
+			}
 			return errFresh
 		}
 	}

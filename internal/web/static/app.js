@@ -1,6 +1,6 @@
 // ghglance web UI enhancements. Every page works without JavaScript; this
 // adds browser-timezone detection, a live list of the GitHub permissions a
-// sign-in asks for, copy buttons and job-status polling.
+// sign-in asks for, and job-status polling.
 'use strict';
 
 /**
@@ -56,52 +56,6 @@ function wireOAuthScopes(form) {
   priv.addEventListener('change', sync);
   orgs.addEventListener('change', sync);
   sync();
-}
-
-/**
- * Copies text to the clipboard, falling back to a selection copy.
- * @param {string} text
- * @returns {Promise<void>}
- */
-function copyText(text) {
-  if (navigator.clipboard && window.isSecureContext) {
-    return navigator.clipboard.writeText(text);
-  }
-  const area = document.createElement('textarea');
-  area.value = text;
-  area.setAttribute('readonly', '');
-  area.style.position = 'fixed';
-  area.style.opacity = '0';
-  document.body.appendChild(area);
-  area.select();
-  try {
-    document.execCommand('copy');
-  } finally {
-    area.remove();
-  }
-  return Promise.resolve();
-}
-
-/**
- * Wires a copy button; data-copy holds the text, data-copy-target names an
- * element whose value is copied.
- * @param {HTMLButtonElement} button
- */
-function wireCopy(button) {
-  const label = button.textContent;
-  button.addEventListener('click', () => {
-    let text = button.dataset.copy || '';
-    if (button.dataset.copyTarget) {
-      const el = /** @type {HTMLTextAreaElement|null} */ (document.getElementById(button.dataset.copyTarget));
-      text = el ? el.value : '';
-    }
-    copyText(text).then(
-      () => { button.textContent = 'Copied'; },
-      () => { button.textContent = 'Copy failed'; },
-    ).finally(() => {
-      setTimeout(() => { button.textContent = label; }, 1500);
-    });
-  });
 }
 
 /**
@@ -165,7 +119,6 @@ document.documentElement.classList.add('js');
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('input[data-autotz]').forEach((el) => detectTimezone(/** @type {HTMLInputElement} */ (el)));
   document.querySelectorAll('form.gen').forEach((el) => wireOAuthScopes(/** @type {HTMLFormElement} */ (el)));
-  document.querySelectorAll('button[data-copy], button[data-copy-target]').forEach((el) => wireCopy(/** @type {HTMLButtonElement} */ (el)));
   const progress = document.getElementById('progress');
   if (progress) pollStatus(progress);
 });

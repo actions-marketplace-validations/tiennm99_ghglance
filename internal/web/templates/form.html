@@ -43,8 +43,8 @@
         <label><input type="checkbox" name="include_forks" value="1"{{if .Form.IncludeForks}} checked{{end}}> Include forks</label>
         <label><input type="checkbox" name="include_private" value="1"{{if .Form.IncludePrivate}} checked{{end}}> Include private repos</label>
         <label><input type="checkbox" name="include_org_repos" value="1"{{if .Form.IncludeOrgRepos}} checked{{end}}> Include org repos you administer</label>
-        <p class="hint">Private and org repos are only counted when you sign in as the username's own account.
-          <strong>The resulting cards are public on this site</strong>, including totals drawn from private repos.</p>
+        <p class="hint">Private and org repos are only counted when you sign in, or paste a token, as the username's own account.
+          <strong>The resulting cards are visible on this site to anyone with the page link</strong>, including totals drawn from private repos.</p>
       </fieldset>
     </div>
   </details>
@@ -59,5 +59,27 @@
     <p class="hint">Tick private repos only when the username is your own GitHub account: a sign-in with private access as another account is refused.
       Signed in as another account, you get public data only.</p>
   </div>
+
+  <details class="own-token">
+    <summary>Or use your own token</summary>
+    <div class="field">
+      <label for="token">Your GitHub token</label>
+      <input id="token" name="token" type="password" autocomplete="off" spellcheck="false"
+        maxlength="255" aria-describedby="token-hint">
+      <p class="token-create">
+        <a class="button" href="https://github.com/settings/tokens/new?scopes=repo,read:user&amp;description=ghglance"
+          target="_blank" rel="noopener noreferrer">Create a token on GitHub</a>
+        <span class="hint">Opens a classic token with the <code>repo</code> and <code>read:user</code> scopes already ticked. Pick a short expiration, generate it, and paste it here.</span>
+      </p>
+      <p class="hint" id="token-hint">
+        Used for this one generation only: never stored, never logged, and not revoked, so it stays yours to delete on GitHub.
+        A token here is used instead of signing in, whichever button you press.
+        With a token for the username's own account, private repos count when ticked and the regenerate wait is skipped;
+        a token for another account renders public data only and is refused if it can read private repos.
+        <strong>The resulting cards are visible on this site to anyone with the page link.</strong>
+      </p>
+    </div>
+    <button type="submit">{{if .Meta}}Regenerate{{else}}Generate{{end}} with this token</button>
+  </details>
 </form>
 {{end}}

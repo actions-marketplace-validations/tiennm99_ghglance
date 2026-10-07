@@ -21,7 +21,7 @@ import (
 func main() {
 	var (
 		user           = flag.String("user", "", "GitHub username (required)")
-		token          = flag.String("token", os.Getenv("GITHUB_TOKEN"), "GitHub token (or env GITHUB_TOKEN); not used by -serve, which runs every generation on the visitor's sign-in")
+		token          = flag.String("token", os.Getenv("GITHUB_TOKEN"), "GitHub token (or env GITHUB_TOKEN); not used by -serve, which runs every generation on the visitor's sign-in or pasted token")
 		out            = flag.String("out", "output", "output directory")
 		themesFlag     = flag.String("themes", "dracula", "comma-separated theme ids, or 'all'")
 		tzName         = flag.String("tz", "Local", "timezone for productive-time card (IANA name, e.g. Asia/Saigon)")
@@ -35,7 +35,7 @@ func main() {
 		listThemes     = flag.Bool("list-themes", false, "print available theme ids and exit")
 		serve          = flag.String("serve", "", "run the web UI on this address (e.g. :8080) instead of generating once")
 		dataDir        = flag.String("data-dir", "data", "web UI: directory holding generated cards")
-		cooldown       = flag.Duration("cooldown", 6*time.Hour, "web UI: minimum age of a user's cards before someone signed in as another account can regenerate them")
+		cooldown       = flag.Duration("cooldown", 6*time.Hour, "web UI: minimum age of a user's cards before a sign-in or token for another account can regenerate them")
 		retention      = flag.Duration("retention", 24*time.Hour, "web UI: delete a user's generated cards this long after they were generated (0 = keep forever)")
 		workers        = flag.Int("workers", 2, "web UI: concurrent generation jobs")
 		// Empty defaults keep the secret out of -help; the env fallback is

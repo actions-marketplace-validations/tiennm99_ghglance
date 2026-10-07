@@ -112,8 +112,12 @@ the `ghglance-data` volume, and health-checks `/healthz` with busybox
 | `GHGLANCE_OAUTH_CLIENT_SECRET` | Required. That OAuth App's client secret (`-oauth-client-secret`). Never logged or printed. |
 | `GHGLANCE_PUBLIC_URL` | Required. The site's external origin, e.g. `https://ghglance.sg.miti99.com` (`-public-url`). The OAuth App's callback URL must be exactly `<public-url>/auth/callback`. |
 
-The web UI is sign-in only: the server holds no GitHub token, and every
-generation runs on the visitor's OAuth token, revoked when the job ends.
+The server holds no GitHub token: every generation runs on the visitor's
+token, either from Sign in with GitHub (revoked when the job ends) or one
+they paste into the form (used once, never stored, not revoked). The
+OAuth App is still required. No token variable exists. The site is for
+quick viewing only: cards are inlined into `/u/<user>` and have no URL of
+their own.
 `compose.yml` refuses to start while any of the three variables is empty,
 and `-serve` exits with an error naming the missing settings.
 

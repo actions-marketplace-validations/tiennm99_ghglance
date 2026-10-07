@@ -230,7 +230,7 @@ func TestOAuthStartRedirectsToGitHub(t *testing.T) {
 
 	q, c := signIn(t, h, g, url.Values{
 		"user": {"octocat"}, "include_private": {"1"}, "include_org_repos": {"1"},
-		"token": {testToken}, // not a form field: ignored, still a sign-in
+		"token": {"  "}, // a blank token field still signs in
 	})
 	want := map[string]string{
 		"client_id":             testClientID,

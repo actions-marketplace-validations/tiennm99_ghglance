@@ -2,7 +2,10 @@ package web
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
+	"html"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -196,7 +199,6 @@ func TestParseSubmissionKeepsTicks(t *testing.T) {
 	sub, _, err := parseSubmission(form(
 		"user", "octocat", "tz", "Asia/Saigon", "start_of_week", "Mon",
 		"include_private", "1", "include_org_repos", "1", "include_forks", "1",
-		"token", testToken, // no such field any more: ignored
 	))
 	if err != nil {
 		t.Fatal(err)
@@ -205,8 +207,15 @@ func TestParseSubmissionKeepsTicks(t *testing.T) {
 	if !o.IncludePrivate || !o.IncludeOrgRepos || !o.IncludeForks || o.StartOfWeek != "monday" || o.TZ != "Asia/Saigon" {
 		t.Errorf("options = %+v", o)
 	}
-	if o.CommitsPerRepo != defaultCommitsPerRepo || sub.Token != "" {
+	if o.CommitsPerRepo != defaultCommitsPerRepo || sub.Token != "" || sub.Pasted {
 		t.Errorf("submission = %+v", sub)
+	}
+	sub, f, err := parseSubmission(form("user", "octocat", "token", " "+testToken+" "))
+	if err != nil || sub.Token != testToken || !sub.Pasted {
+		t.Errorf("pasted token = %+v, %v", sub, err)
+	}
+	if strings.Contains(fmt.Sprintf("%+v", f), testToken) {
+		t.Error("form values carry the pasted token")
 	}
 	if sub, _, err := parseSubmission(form("user", "octocat", "commits_per_repo", "0")); err != nil || sub.Options.CommitsPerRepo != 0 {
 		t.Errorf("every commit = %+v, %v", sub.Options, err)
@@ -223,6 +232,9 @@ func TestParseSubmissionRejects(t *testing.T) {
 		"bad week":         form("user", "a", "start_of_week", "moonday"),
 		"negative commits": form("user", "a", "commits_per_repo", "-1"),
 		"huge commits":     form("user", "a", "commits_per_repo", "999999"),
+		"short token":      form("user", "a", "token", "ghp_short"),
+		"header injection": form("user", "a", "token", testToken+"\r\nX-Evil: 1"),
+		"token with space": form("user", "a", "token", "ghp_abc def0123456789abcdef"),
 	}
 	for name, get := range cases {
 		if _, _, err := parseSubmission(get); err == nil {
@@ -447,11 +459,32 @@ func TestHandlers(t *testing.T) {
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `action="/auth/start"`) {
 		t.Fatalf("index = %d", rec.Code)
 	}
-	if body := rec.Body.String(); strings.Contains(body, `name="token"`) || strings.Count(body, `type="submit"`) != 1 {
-		t.Error("index offers something besides signing in")
+	body := rec.Body.String()
+	signInAt := strings.Index(body, "Sign in with GitHub")
+	tokenAt := strings.Index(body, `<details class="own-token">`)
+	if signInAt < 0 || tokenAt < signInAt || strings.Contains(body, `<details class="own-token" open`) {
+		t.Error("index lacks a collapsed token section below the sign-in button")
 	}
-	if rec.Header().Get("Content-Security-Policy") == "" || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
-		t.Error("index missing security headers")
+	for _, want := range []string{
+		`<summary>Or use your own token</summary>`,
+		`name="token" type="password"`,
+		`href="https://github.com/settings/tokens/new?scopes=repo,read:user&amp;description=ghglance"`,
+		`target="_blank" rel="noopener noreferrer"`,
+		"never stored, never logged",
+		"visible on this site to anyone with the page link",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("index lacks %q", want)
+		}
+	}
+	// Enter in any field presses the first submit button: the sign-in one.
+	if strings.Count(body, `type="submit"`) != 2 || strings.Index(body, `type="submit"`) > signInAt {
+		t.Error("index submit buttons are not sign-in first, then the token button")
+	}
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "img-src 'self' data:;") || !strings.Contains(csp, "default-src 'none'") ||
+		!strings.Contains(csp, "script-src 'self';") || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("index security headers: CSP %q", csp)
 	}
 	if rec := get("/healthz"); rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != "ok" {
 		t.Errorf("healthz = %d %q", rec.Code, rec.Body.String())
@@ -469,37 +502,58 @@ func TestHandlers(t *testing.T) {
 
 	publishTest(t, s.store, "octocat")
 	rec = get("/u/octocat?theme=github_dark")
-	body := rec.Body.String()
-	if rec.Code != 200 || !strings.Contains(body, "/u/octocat/github_dark/stats.svg") || !strings.Contains(body, "http://example.com/u/octocat/github_dark/stats.svg") {
+	// html/template writes "+" in attributes as "&#43;"; compare decoded.
+	body = html.UnescapeString(rec.Body.String())
+	if rec.Code != 200 {
 		t.Fatalf("user page = %d", rec.Code)
 	}
-	if rec := get("/u/octocat?theme=../../etc"); !strings.Contains(rec.Body.String(), "/u/octocat/dracula/stats.svg") {
+	want, err := os.ReadFile(filepath.Join(s.store.dir, "octocat", "github_dark", "stats.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, `src="data:image/svg+xml;base64,`+base64.StdEncoding.EncodeToString(want)+`"`) {
+		t.Error("user page does not inline the stats card as a data: URI")
+	}
+	if n := strings.Count(body, `src="data:image/svg+xml;base64,`); n != 16 {
+		t.Errorf("user page inlines %d cards, want 16", n)
+	}
+	if !strings.Contains(body, `alt="stats card for octocat"`) {
+		t.Error("cards lack alt text")
+	}
+	// The page is shareable but suggests copying nothing: no copy buttons,
+	// no Markdown or HTML snippet, no card URL, no README or embed advice.
+	for _, leak := range []string{
+		"/u/octocat/github_dark/", "/u/octocat/dracula/", "stats.svg", "![", "<img src=&#34;", "&lt;img",
+		"Markdown", "data-copy", "Copy", `type="button"`, "<textarea", "readonly",
+		"embed", "Embed", "README", "GitHub Action",
+	} {
+		if strings.Contains(body, leak) {
+			t.Errorf("user page still offers a card link or embed: contains %q", leak)
+		}
+	}
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "img-src 'self' data:;") {
+		t.Errorf("user page CSP blocks data: images: %s", csp)
+	}
+	other, err := os.ReadFile(filepath.Join(s.store.dir, "octocat", "dracula", "stats.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := get("/u/octocat?theme=../../etc"); !strings.Contains(html.UnescapeString(rec.Body.String()), base64.StdEncoding.EncodeToString(other)) {
 		t.Error("invalid theme not replaced by default")
 	}
 
-	rec = get("/u/octocat/dracula/stats.svg")
-	if rec.Code != 200 || rec.Header().Get("Content-Type") != "image/svg+xml" {
-		t.Fatalf("card = %d %q", rec.Code, rec.Header().Get("Content-Type"))
-	}
-	if !strings.Contains(rec.Header().Get("Content-Security-Policy"), "default-src 'none'") ||
-		rec.Header().Get("X-Content-Type-Options") != "nosniff" ||
-		!strings.Contains(rec.Header().Get("Cache-Control"), "max-age") {
-		t.Errorf("card headers = %v", rec.Header())
-	}
-	if !strings.HasPrefix(rec.Body.String(), "<svg") {
-		t.Error("card body is not an SVG")
-	}
-
+	// There is no card route: nothing serves a card by URL.
 	for _, p := range []string{
+		"/u/octocat/dracula/stats.svg",
+		"/u/octocat/github_dark/stats.svg?v=1",
 		"/u/octocat/nope/stats.svg",
-		"/u/octocat/dracula/nope.svg",
 		"/u/octocat/dracula/meta.json",
 		"/u/octocat/..%2fmeta.json/stats.svg",
 		"/u/..%2f..%2fetc/dracula/stats.svg",
-		"/u/octocat/dracula/..%2f..%2fmeta.json",
 	} {
-		if rec := get(p); rec.Code != 404 {
-			t.Errorf("GET %s = %d, want 404", p, rec.Code)
+		rec := get(p)
+		if rec.Code != 404 || strings.Contains(rec.Header().Get("Content-Type"), "svg") || strings.Contains(rec.Body.String(), "<svg") {
+			t.Errorf("GET %s = %d %q, want a 404 page", p, rec.Code, rec.Header().Get("Content-Type"))
 		}
 	}
 
